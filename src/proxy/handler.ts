@@ -1,0 +1,107 @@
+import type { Logger } from '../logger';
+import type { UsageStore, Blocklist } from '../storage/interfaces';
+import { extractIdentity } from '../guardrails/identity';
+import { checkThreshold } from '../guardrails/policy';
+import { connectToUpstream } from './upstream';
+import { setupRelay, type RelayHooks } from './relay';
+
+const DEFAULT_MODEL = 'gpt-4o-realtime-preview';
+
+export interface WebSocketHandlerDeps {
+  usageStore: UsageStore;
+  blocklist: Blocklist;
+  openaiApiKey: string;
+  logger: Logger;
+  relayHooks?: RelayHooks;
+}
+
+export async function handleWebSocketUpgrade(
+  request: Request,
+  deps: WebSocketHandlerDeps
+): Promise<Response> {
+  const { usageStore, blocklist, openaiApiKey, logger, relayHooks } = deps;
+  const connectionId = crypto.randomUUID();
+  const connLogger = logger.child({ component: 'connection', connectionId });
+
+  try {
+    const url = new URL(request.url);
+
+    if (!url.pathname.startsWith('/v1/realtime')) {
+      connLogger.warn({ path: url.pathname }, 'Invalid path');
+      return new Response('Not Found', { status: 404 });
+    }
+
+    const model = url.searchParams.get('model') || DEFAULT_MODEL;
+
+    // Extract identity from headers
+    const identityResult = extractIdentity(request);
+    if (!identityResult.success) {
+      connLogger.warn({ error: identityResult.error }, 'Identity extraction failed');
+      return new Response(identityResult.error, { status: identityResult.code });
+    }
+
+    const { userId, orgId } = identityResult.identity;
+
+    // Determine API key: client Bearer token or server-side key
+    const authHeader = request.headers.get('authorization');
+    const bearerToken = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : undefined;
+    const apiKey = bearerToken || openaiApiKey;
+
+    if (!apiKey) {
+      connLogger.warn('No API key available');
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    connLogger.info({ userId, orgId }, 'User identity resolved');
+
+    // Check blocklist
+    if (await blocklist.isBlocked(userId)) {
+      const entry = await blocklist.getBlockEntry(userId);
+      connLogger.warn({ reason: entry?.reason }, 'User is blocked');
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    // Check threshold
+    const thresholdCheck = await checkThreshold(usageStore, userId);
+    if (thresholdCheck.exceeded) {
+      connLogger.warn({ reason: thresholdCheck.reason }, 'User has exceeded threshold');
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    connLogger.info({ model, userId, orgId }, 'WebSocket upgrade requested');
+
+    // Create WebSocket pair for the client
+    const pair = new WebSocketPair();
+    const [clientSocket, serverSocket] = [pair[0], pair[1]];
+
+    serverSocket.accept();
+
+    // Connect to upstream in the background
+    connectToUpstream({ model, connectionId, apiKey, logger })
+      .then((upstream) => {
+        connLogger.info('Client WebSocket connection established');
+        setupRelay(
+          serverSocket,
+          upstream,
+          { connectionId, userId, orgId, model },
+          usageStore,
+          logger,
+          relayHooks
+        );
+      })
+      .catch((err) => {
+        connLogger.error({ error: String(err) }, 'Failed to connect to upstream');
+        serverSocket.close(4502, 'Bad Gateway');
+      });
+
+    return new Response(null, {
+      status: 101,
+      webSocket: clientSocket,
+    });
+  } catch (error) {
+    connLogger.error({ error: String(error) }, 'Error handling upgrade');
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
