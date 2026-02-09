@@ -37,6 +37,7 @@ src/
 ├── storage/            # Storage interfaces and implementations
 │   ├── interfaces.ts   # Abstract storage interfaces
 │   ├── memory.ts       # In-memory implementations (for dev/testing)
+│   ├── d1.ts           # Cloudflare D1 implementations (persistent)
 │   └── period.ts       # Usage period utilities (daily/monthly)
 ├── types/              # TypeScript type definitions
 │   ├── events.ts       # OpenAI Realtime API event types
@@ -100,16 +101,10 @@ wrangler deploy
 
 ### As a Library
 
-You can use tokenist-core as a library in your own Worker:
+You can use tokenist-core as a library in your own Worker. Use the D1 adapters for persistent storage (recommended), or the in-memory adapters for testing:
 
 ```typescript
-import { createTokenist } from 'tokenist-core';
-import {
-  createInMemoryUsageStore,
-  createInMemoryBlocklist,
-  createInMemoryUserStore,
-  createInMemoryApiKeyStore,
-} from 'tokenist-core';
+import { createTokenist, createD1UsageStore, createD1Blocklist, createD1UserStore, createD1ApiKeyStore } from 'tokenist-core';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -118,10 +113,10 @@ export default {
       jwtSecret: env.JWT_SECRET,
       defaultMaxCostUsd: 10,
       defaultMaxTotalTokens: 100000,
-      usageStore: createInMemoryUsageStore({ defaultMaxCostUsd: 10 }),
-      blocklist: createInMemoryBlocklist(),
-      userStore: createInMemoryUserStore(),
-      apiKeyStore: createInMemoryApiKeyStore(),
+      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10 }),
+      blocklist: createD1Blocklist(env.DB),
+      userStore: createD1UserStore(env.DB),
+      apiKeyStore: createD1ApiKeyStore(env.DB),
     });
 
     return tokenist.fetch(request);
@@ -361,13 +356,144 @@ interface ApiKeyStore {
 }
 ```
 
-### Recommended Backends
+### Built-in Implementations
 
-For production on Cloudflare Workers:
+- **In-Memory** (`createInMemory*`): Non-persistent, for development and testing
+- **Cloudflare D1** (`createD1*`): Persistent SQL storage, recommended for production
 
-- **Cloudflare D1**: SQL database, good for complex queries
-- **Cloudflare KV**: Key-value store, good for simple lookups
-- **Cloudflare Durable Objects**: Strongly consistent, ideal for real-time state
+See [D1 Database Setup](#d1-database-setup) for how to use the D1 backend.
+
+## D1 Database Setup
+
+Tokenist includes built-in Cloudflare D1 storage adapters for persistent data. The default `worker.ts` uses D1 out of the box.
+
+### Local Development
+
+1. **Install dependencies:**
+
+```bash
+npm install
+```
+
+2. **Create the local D1 database and apply the schema:**
+
+```bash
+wrangler d1 execute tokenist-db --local --file=./schema.sql
+```
+
+This creates a local SQLite database that D1 uses during `wrangler dev`.
+
+3. **Set up environment variables** in `.dev.vars`:
+
+```env
+OPENAI_API_KEY=sk-...
+JWT_SECRET=your-secret-key
+```
+
+4. **Start the dev server:**
+
+```bash
+npm run dev
+```
+
+The Worker runs at `http://localhost:8787` with a local D1 database. Data persists across restarts in `.wrangler/state/`.
+
+### Remote Deployment (Cloudflare)
+
+1. **Create a D1 database on Cloudflare:**
+
+```bash
+wrangler d1 create tokenist-db
+```
+
+This outputs a `database_id`. Copy it.
+
+2. **Update `wrangler.toml`** with the database ID:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "tokenist-db"
+database_id = "your-database-id-here"
+```
+
+3. **Apply the schema to the remote database:**
+
+```bash
+wrangler d1 execute tokenist-db --remote --file=./schema.sql
+```
+
+4. **Set secrets:**
+
+```bash
+wrangler secret put OPENAI_API_KEY
+wrangler secret put JWT_SECRET
+```
+
+5. **Deploy:**
+
+```bash
+wrangler deploy
+```
+
+### Using D1 as a Library
+
+If you use tokenist-core as a library in your own Worker, pass the D1 binding to the factory functions:
+
+```typescript
+import { createTokenist } from 'tokenist-core';
+import {
+  createD1UsageStore,
+  createD1Blocklist,
+  createD1UserStore,
+  createD1ApiKeyStore,
+} from 'tokenist-core';
+
+interface Env {
+  OPENAI_API_KEY: string;
+  JWT_SECRET: string;
+  DB: D1Database;
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const tokenist = createTokenist({
+      openaiApiKey: env.OPENAI_API_KEY,
+      jwtSecret: env.JWT_SECRET,
+      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10 }),
+      blocklist: createD1Blocklist(env.DB),
+      userStore: createD1UserStore(env.DB),
+      apiKeyStore: createD1ApiKeyStore(env.DB),
+    });
+
+    return tokenist.fetch(request);
+  },
+};
+```
+
+### Inspecting the Database
+
+```bash
+# Local: query the local D1 database
+wrangler d1 execute tokenist-db --local --command="SELECT * FROM users"
+wrangler d1 execute tokenist-db --local --command="SELECT * FROM usage"
+
+# Remote: query the production D1 database
+wrangler d1 execute tokenist-db --remote --command="SELECT * FROM users"
+wrangler d1 execute tokenist-db --remote --command="SELECT * FROM usage"
+```
+
+### Schema Migrations
+
+The schema is in `schema.sql`. All tables use `CREATE TABLE IF NOT EXISTS`, so re-running the schema is safe. For additive changes (new columns/tables), update `schema.sql` and re-apply:
+
+```bash
+# Local
+wrangler d1 execute tokenist-db --local --file=./schema.sql
+
+# Remote
+wrangler d1 execute tokenist-db --remote --file=./schema.sql
+```
 
 ## Supported Models
 

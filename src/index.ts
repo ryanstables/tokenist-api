@@ -55,6 +55,13 @@ export {
   createInMemoryUserStore,
   createInMemoryApiKeyStore,
 } from './storage/memory';
+export {
+  createD1UsageStore,
+  createD1Blocklist,
+  createD1UserStore,
+  createD1ApiKeyStore,
+} from './storage/d1';
+export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
 export { getPricing, calculateCost } from './usage/pricing';
 export {

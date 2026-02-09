@@ -1,16 +1,17 @@
 import { createTokenist } from './index';
 import {
-  createInMemoryUsageStore,
-  createInMemoryBlocklist,
-  createInMemoryUserStore,
-  createInMemoryApiKeyStore,
-} from './storage/memory';
+  createD1UsageStore,
+  createD1Blocklist,
+  createD1UserStore,
+  createD1ApiKeyStore,
+} from './storage/d1';
 
 interface Env {
   OPENAI_API_KEY: string;
   JWT_SECRET: string;
   DEFAULT_MAX_COST_USD?: string;
   DEFAULT_MAX_TOTAL_TOKENS?: string;
+  DB: D1Database;
 }
 
 export default {
@@ -27,13 +28,13 @@ export default {
       jwtSecret: env.JWT_SECRET,
       defaultMaxCostUsd,
       defaultMaxTotalTokens,
-      usageStore: createInMemoryUsageStore({
+      usageStore: createD1UsageStore(env.DB, {
         defaultMaxCostUsd,
         defaultMaxTotalTokens,
       }),
-      blocklist: createInMemoryBlocklist(),
-      userStore: createInMemoryUserStore(),
-      apiKeyStore: createInMemoryApiKeyStore(),
+      blocklist: createD1Blocklist(env.DB),
+      userStore: createD1UserStore(env.DB),
+      apiKeyStore: createD1ApiKeyStore(env.DB),
     });
 
     return tokenist.fetch(request);
