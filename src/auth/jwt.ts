@@ -3,7 +3,7 @@ import * as jose from 'jose';
 export interface JWTPayload {
   userId: string;
   email: string;
-  orgId?: string;
+  orgId?: string | null;
 }
 
 export async function generateToken(
@@ -29,7 +29,7 @@ export async function verifyToken(
     return {
       userId: payload.userId as string,
       email: payload.email as string,
-      orgId: payload.orgId as string | undefined,
+      orgId: payload.orgId as string | null | undefined,
     };
   } catch {
     return null;

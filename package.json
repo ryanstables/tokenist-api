@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "wrangler dev src/worker.ts",
+    "dev": "wrangler dev src/worker.ts --port 8081",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

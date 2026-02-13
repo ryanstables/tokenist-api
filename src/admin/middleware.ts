@@ -43,15 +43,7 @@ export function createApiKeyMiddleware(apiKeyStore: ApiKeyStore) {
       return c.json({ error: 'Invalid API key format' }, 401);
     }
 
-    // Hash the key to look it up
-    const encoded = new TextEncoder().encode(apiKey);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-    const hashArray = new Uint8Array(hashBuffer);
-    const keyHash = Array.from(hashArray)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    const userId = await apiKeyStore.findUserIdByKeyHash(keyHash);
+    const userId = await apiKeyStore.findUserIdByApiKey(apiKey);
 
     if (!userId) {
       return c.json({ error: 'Invalid API key' }, 401);

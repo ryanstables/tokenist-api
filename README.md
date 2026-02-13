@@ -224,10 +224,11 @@ Register a new user.
 {
   "email": "user@example.com",
   "password": "securepassword",
-  "displayName": "John Doe",
-  "orgId": "org-123"
+  "displayName": "John Doe"
 }
 ```
+
+`orgId` is optional. If omitted, the API assigns a new org ID for the user automatically.
 
 #### `POST /auth/login`
 Authenticate and receive a JWT.
@@ -258,6 +259,22 @@ Get current authenticated user (requires JWT).
 #### `GET /auth/api-keys`
 List API keys for authenticated user.
 
+**Response:**
+```json
+{
+  "keys": [
+    {
+      "id": "uuid",
+      "name": "Production Key",
+      "apiKey": "ug_...",
+      "createdAt": "2026-02-13T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+`apiKey` may be `null` for legacy keys created before retrievable storage was enabled.
+
 #### `POST /auth/api-keys`
 Create a new API key.
 
@@ -265,6 +282,16 @@ Create a new API key.
 ```json
 {
   "name": "Production Key"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "name": "Production Key",
+  "apiKey": "ug_...",
+  "createdAt": "2026-02-13T12:00:00.000Z"
 }
 ```
 

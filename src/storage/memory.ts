@@ -156,15 +156,6 @@ export function createInMemoryBlocklist(): Blocklist {
   };
 }
 
-async function sha256Hex(data: string): Promise<string> {
-  const encoded = new TextEncoder().encode(data);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-  const hashArray = new Uint8Array(hashBuffer);
-  return Array.from(hashArray)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 function generateApiKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -186,6 +177,16 @@ export function createInMemoryUserStore(): UserStore {
     async findByEmail(email: string): Promise<StoredUserRecord | undefined> {
       const userId = emailIndex.get(email.toLowerCase());
       return userId ? users.get(userId) : undefined;
+    },
+
+    async listByOrg(orgId: string): Promise<StoredUserRecord[]> {
+      const result: StoredUserRecord[] = [];
+      for (const user of users.values()) {
+        if (user.orgId === orgId) {
+          result.push(user);
+        }
+      }
+      return result;
     },
 
     async create(user: StoredUserRecord): Promise<StoredUserRecord> {
@@ -218,7 +219,7 @@ export function createInMemoryUserStore(): UserStore {
 
 export function createInMemoryApiKeyStore(): ApiKeyStore {
   const keys = new Map<string, StoredApiKey>();
-  const hashIndex = new Map<string, string>(); // keyHash → keyId
+  const apiKeyIndex = new Map<string, string>(); // apiKey -> keyId
 
   return {
     async create(
@@ -226,17 +227,16 @@ export function createInMemoryApiKeyStore(): ApiKeyStore {
       name: string
     ): Promise<{ key: StoredApiKey; plainKey: string }> {
       const plainKey = generateApiKey();
-      const keyHash = await sha256Hex(plainKey);
       const id = crypto.randomUUID();
       const key: StoredApiKey = {
         id,
         userId,
         name,
-        keyHash,
+        apiKey: plainKey,
         createdAt: new Date(),
       };
       keys.set(id, key);
-      hashIndex.set(keyHash, id);
+      apiKeyIndex.set(plainKey, id);
       return { key, plainKey };
     },
 
@@ -251,12 +251,14 @@ export function createInMemoryApiKeyStore(): ApiKeyStore {
     async delete(userId: string, keyId: string): Promise<boolean> {
       const key = keys.get(keyId);
       if (!key || key.userId !== userId) return false;
-      hashIndex.delete(key.keyHash);
+      if (key.apiKey) {
+        apiKeyIndex.delete(key.apiKey);
+      }
       return keys.delete(keyId);
     },
 
-    async findUserIdByKeyHash(keyHash: string): Promise<string | undefined> {
-      const keyId = hashIndex.get(keyHash);
+    async findUserIdByApiKey(apiKey: string): Promise<string | undefined> {
+      const keyId = apiKeyIndex.get(apiKey);
       if (!keyId) return undefined;
       return keys.get(keyId)?.userId;
     },

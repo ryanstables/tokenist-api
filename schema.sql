@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   name TEXT NOT NULL,
+  -- Legacy column name retained; stores full key for new keys.
   key_hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );

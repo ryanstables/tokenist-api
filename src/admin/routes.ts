@@ -52,9 +52,127 @@ const sdkRecordSchema = z.object({
   timestamp: z.string().datetime().optional(),
 });
 
+type RuleRecord = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  subject: { type: 'user' | 'group' | 'feature'; ids: string[] };
+  trigger: Record<string, unknown> & { type: string };
+  restriction: Record<string, unknown> & { type: 'warning' | 'rate_limit' | 'throttle' | 'block' };
+  notifications: {
+    webhookUrl?: string;
+    injectResponse?: boolean;
+    responseMessage?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+  lastTriggeredAt?: string | null;
+};
+
+type PolicyRecord = {
+  id: string;
+  name: string;
+  description: string;
+  source: 'openai_moderation' | 'custom';
+  createdAt: string;
+};
+
+type RuleHistoryRecord = {
+  id: string;
+  ruleId: string;
+  action: 'created' | 'updated' | 'enabled' | 'disabled' | 'deleted';
+  changes?: Record<string, { from: unknown; to: unknown }>;
+  timestamp: string;
+  userId?: string;
+};
+
+type RuleTriggerRecord = {
+  id: string;
+  ruleId: string;
+  subjectId: string;
+  subjectType: 'user' | 'group' | 'feature';
+  triggerContext: string;
+  actionTaken: string;
+  timestamp: string;
+};
+
+const rulesByOrg = new Map<string, Map<string, RuleRecord>>();
+const policiesByOrg = new Map<string, Map<string, PolicyRecord>>();
+const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
+const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
+
 export function createAdminRoutes(deps: AdminRouteDeps) {
   const { usageStore, blocklist, userStore, apiKeyStore, logger, jwtSecret, jwtExpiresIn } = deps;
   const app = new Hono<Env>();
+
+  const buildPeriodLabel = (period: string): string => {
+    const now = new Date();
+    if (period === 'monthly') {
+      return now.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    }
+    if (period === 'daily') {
+      return now.toISOString().slice(0, 10);
+    }
+    if (period === 'rolling_24h') {
+      return 'Last 24 hours';
+    }
+    return period;
+  };
+
+  const getRulesForOrg = (orgId: string): Map<string, RuleRecord> => {
+    let rules = rulesByOrg.get(orgId);
+    if (!rules) {
+      rules = new Map<string, RuleRecord>();
+      rulesByOrg.set(orgId, rules);
+    }
+    return rules;
+  };
+
+  const getPoliciesForOrg = (orgId: string): Map<string, PolicyRecord> => {
+    let policies = policiesByOrg.get(orgId);
+    if (!policies) {
+      policies = new Map<string, PolicyRecord>();
+      policiesByOrg.set(orgId, policies);
+    }
+    return policies;
+  };
+
+  const getRuleHistoryForOrg = (orgId: string): Map<string, RuleHistoryRecord[]> => {
+    let history = ruleHistoryByOrg.get(orgId);
+    if (!history) {
+      history = new Map<string, RuleHistoryRecord[]>();
+      ruleHistoryByOrg.set(orgId, history);
+    }
+    return history;
+  };
+
+  const getRuleTriggersForOrg = (orgId: string): Map<string, RuleTriggerRecord[]> => {
+    let triggers = ruleTriggersByOrg.get(orgId);
+    if (!triggers) {
+      triggers = new Map<string, RuleTriggerRecord[]>();
+      ruleTriggersByOrg.set(orgId, triggers);
+    }
+    return triggers;
+  };
+
+  const addRuleHistory = (
+    orgId: string,
+    ruleId: string,
+    action: RuleHistoryRecord['action'],
+    changes?: RuleHistoryRecord['changes']
+  ) => {
+    const history = getRuleHistoryForOrg(orgId);
+    const entries = history.get(ruleId) ?? [];
+    entries.unshift({
+      id: crypto.randomUUID(),
+      ruleId,
+      action,
+      changes,
+      timestamp: new Date().toISOString(),
+    });
+    history.set(ruleId, entries);
+  };
 
   // Health check
   app.get('/health', (c) => c.json({ status: 'ok' }));
@@ -108,6 +226,269 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
 
     return c.json({ users });
   });
+
+  // Organization summary for dashboard
+  if (userStore) {
+    app.get('/admin/orgs/:orgId/summary', async (c) => {
+      const orgId = c.req.param('orgId');
+      const period = c.req.query('period') ?? 'monthly';
+      const userIdsParam = c.req.query('userIds');
+      const feature = c.req.query('feature') ?? null;
+      const scopedUserIds = new Set(
+        (userIdsParam ?? '')
+          .split(',')
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0)
+      );
+
+      const orgUsers = await userStore.listByOrg(orgId);
+      const usersInScope =
+        scopedUserIds.size > 0
+          ? orgUsers.filter((user) => scopedUserIds.has(user.userId))
+          : orgUsers;
+
+      const users = await Promise.all(
+        usersInScope.map(async (user) => {
+          const usage = await usageStore.getUsage(user.userId);
+          return {
+            userId: user.userId,
+            displayName: user.displayName,
+            usage: {
+              inputTokens: usage?.inputTokens ?? 0,
+              outputTokens: usage?.outputTokens ?? 0,
+              totalTokens: usage?.totalTokens ?? 0,
+              costUsd: usage?.costUsd ?? 0,
+              lastUpdated: usage?.lastUpdated?.toISOString() ?? null,
+            },
+          };
+        })
+      );
+
+      const totalCost = users.reduce((sum, user) => sum + user.usage.costUsd, 0);
+
+      return c.json({
+        orgId,
+        period,
+        periodLabel: buildPeriodLabel(period),
+        totalCost,
+        userCount: users.length,
+        users,
+        featureFilter: feature,
+      });
+    });
+
+    app.get('/admin/orgs/:orgId/users', async (c) => {
+      const orgId = c.req.param('orgId');
+      const users = await userStore.listByOrg(orgId);
+      return c.json(
+        users.map((user) => ({
+          id: user.userId,
+          displayName: user.displayName,
+        }))
+      );
+    });
+
+    app.get('/admin/orgs/:orgId/groups', (c) => c.json([]));
+
+    app.get('/admin/orgs/:orgId/features', (c) =>
+      c.json([{ id: 'realtime_api', name: 'Realtime API' }])
+    );
+
+    app.get('/admin/orgs/:orgId/policies', (c) => {
+      const orgId = c.req.param('orgId');
+      const policies = Array.from(getPoliciesForOrg(orgId).values());
+      return c.json(policies);
+    });
+
+    app.post('/admin/orgs/:orgId/policies', async (c) => {
+      const orgId = c.req.param('orgId');
+      const body = (await c.req.json().catch(() => ({}))) as Partial<PolicyRecord>;
+      if (!body.name || !body.description) {
+        return c.json({ error: 'name and description are required' }, 400);
+      }
+      const policy: PolicyRecord = {
+        id: crypto.randomUUID(),
+        name: body.name,
+        description: body.description,
+        source: body.source === 'openai_moderation' ? 'openai_moderation' : 'custom',
+        createdAt: new Date().toISOString(),
+      };
+      getPoliciesForOrg(orgId).set(policy.id, policy);
+      return c.json(policy, 201);
+    });
+
+    app.put('/admin/orgs/:orgId/policies/:policyId', async (c) => {
+      const orgId = c.req.param('orgId');
+      const policyId = c.req.param('policyId');
+      const policies = getPoliciesForOrg(orgId);
+      const existing = policies.get(policyId);
+      if (!existing) {
+        return c.json({ error: 'Policy not found' }, 404);
+      }
+      const body = (await c.req.json().catch(() => ({}))) as Partial<PolicyRecord>;
+      const updated: PolicyRecord = {
+        ...existing,
+        name: body.name ?? existing.name,
+        description: body.description ?? existing.description,
+      };
+      policies.set(policyId, updated);
+      return c.json(updated);
+    });
+
+    app.delete('/admin/orgs/:orgId/policies/:policyId', (c) => {
+      const orgId = c.req.param('orgId');
+      const policyId = c.req.param('policyId');
+      const deleted = getPoliciesForOrg(orgId).delete(policyId);
+      if (!deleted) {
+        return c.json({ error: 'Policy not found' }, 404);
+      }
+      return c.json({ success: true });
+    });
+
+    app.get('/admin/orgs/:orgId/rules', async (c) => {
+      const orgId = c.req.param('orgId');
+      const subjectType = c.req.query('subjectType');
+      const restrictionType = c.req.query('restrictionType');
+      const enabledParam = c.req.query('enabled');
+      const limitParam = c.req.query('limit');
+      const offsetParam = c.req.query('offset');
+      const enabledFilter =
+        enabledParam === undefined ? undefined : enabledParam.toLowerCase() === 'true';
+      const limit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
+      const offset = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
+
+      const allRules = Array.from(getRulesForOrg(orgId).values());
+      const filtered = allRules.filter((rule) => {
+        if (subjectType && rule.subject.type !== subjectType) return false;
+        if (restrictionType && rule.restriction.type !== restrictionType) return false;
+        if (enabledFilter !== undefined && rule.enabled !== enabledFilter) return false;
+        return true;
+      });
+      const paged = limit ? filtered.slice(offset, offset + limit) : filtered.slice(offset);
+
+      return c.json({ rules: paged, total: filtered.length });
+    });
+
+    app.post('/admin/orgs/:orgId/rules', async (c) => {
+      const orgId = c.req.param('orgId');
+      const body = (await c.req.json().catch(() => ({}))) as Partial<RuleRecord>;
+      if (
+        !body.name ||
+        !body.subject ||
+        !body.trigger ||
+        !body.restriction ||
+        !body.notifications
+      ) {
+        return c.json({ error: 'Invalid rule payload' }, 400);
+      }
+      const now = new Date().toISOString();
+      const rule: RuleRecord = {
+        id: crypto.randomUUID(),
+        name: body.name,
+        enabled: body.enabled ?? true,
+        subject: body.subject as RuleRecord['subject'],
+        trigger: body.trigger as RuleRecord['trigger'],
+        restriction: body.restriction as RuleRecord['restriction'],
+        notifications: body.notifications as RuleRecord['notifications'],
+        createdAt: now,
+        updatedAt: now,
+        createdBy: body.createdBy,
+        lastTriggeredAt: null,
+      };
+      getRulesForOrg(orgId).set(rule.id, rule);
+      addRuleHistory(orgId, rule.id, 'created');
+      return c.json(rule, 201);
+    });
+
+    app.get('/admin/orgs/:orgId/rules/:ruleId', (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const rule = getRulesForOrg(orgId).get(ruleId);
+      if (!rule) {
+        return c.json({ error: 'Rule not found' }, 404);
+      }
+      return c.json(rule);
+    });
+
+    app.put('/admin/orgs/:orgId/rules/:ruleId', async (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const rules = getRulesForOrg(orgId);
+      const existing = rules.get(ruleId);
+      if (!existing) {
+        return c.json({ error: 'Rule not found' }, 404);
+      }
+      const body = (await c.req.json().catch(() => ({}))) as Partial<RuleRecord>;
+      const updated: RuleRecord = {
+        ...existing,
+        ...body,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      rules.set(ruleId, updated);
+      addRuleHistory(orgId, ruleId, 'updated');
+      return c.json(updated);
+    });
+
+    app.patch('/admin/orgs/:orgId/rules/:ruleId/toggle', async (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const rules = getRulesForOrg(orgId);
+      const existing = rules.get(ruleId);
+      if (!existing) {
+        return c.json({ error: 'Rule not found' }, 404);
+      }
+      const body = (await c.req.json().catch(() => ({}))) as { enabled?: boolean };
+      if (body.enabled === undefined) {
+        return c.json({ error: 'enabled is required' }, 400);
+      }
+      const updated: RuleRecord = {
+        ...existing,
+        enabled: body.enabled,
+        updatedAt: new Date().toISOString(),
+      };
+      rules.set(ruleId, updated);
+      addRuleHistory(orgId, ruleId, body.enabled ? 'enabled' : 'disabled');
+      return c.json(updated);
+    });
+
+    app.delete('/admin/orgs/:orgId/rules/:ruleId', (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const rules = getRulesForOrg(orgId);
+      const deleted = rules.delete(ruleId);
+      if (!deleted) {
+        return c.json({ error: 'Rule not found' }, 404);
+      }
+      addRuleHistory(orgId, ruleId, 'deleted');
+      return c.json({ success: true });
+    });
+
+    app.get('/admin/orgs/:orgId/rules/:ruleId/history', (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const limitParam = c.req.query('limit');
+      const offsetParam = c.req.query('offset');
+      const limit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
+      const offset = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
+      const entries = getRuleHistoryForOrg(orgId).get(ruleId) ?? [];
+      const paged = limit ? entries.slice(offset, offset + limit) : entries.slice(offset);
+      return c.json({ entries: paged, total: entries.length });
+    });
+
+    app.get('/admin/orgs/:orgId/rules/:ruleId/triggers', (c) => {
+      const orgId = c.req.param('orgId');
+      const ruleId = c.req.param('ruleId');
+      const limitParam = c.req.query('limit');
+      const offsetParam = c.req.query('offset');
+      const limit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
+      const offset = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
+      const events = getRuleTriggersForOrg(orgId).get(ruleId) ?? [];
+      const paged = limit ? events.slice(offset, offset + limit) : events.slice(offset);
+      return c.json({ events: paged, total: events.length });
+    });
+  }
 
   // Block user
   app.post('/admin/users/:userId/block', async (c) => {
@@ -193,13 +574,15 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       const passwordHash = await hashPassword(body.password);
       const userId = crypto.randomUUID();
       const now = new Date();
+      const requestedOrgId = body.orgId?.trim();
+      const orgId = requestedOrgId && requestedOrgId.length > 0 ? requestedOrgId : `org_${userId}`;
 
       const user = await userStore.create({
         userId,
         email: body.email,
         passwordHash,
         displayName: body.displayName,
-        orgId: body.orgId,
+        orgId,
         createdAt: now,
         updatedAt: now,
       });
@@ -216,7 +599,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
             userId: user.userId,
             email: user.email,
             displayName: user.displayName,
-            orgId: user.orgId,
+            orgId: user.orgId ?? null,
           },
           token,
         },
@@ -256,7 +639,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           userId: user.userId,
           email: user.email,
           displayName: user.displayName,
-          orgId: user.orgId,
+          orgId: user.orgId ?? null,
         },
         token,
       });
@@ -273,7 +656,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         userId: user.userId,
         email: user.email,
         displayName: user.displayName,
-        orgId: user.orgId,
+        orgId: user.orgId ?? null,
       });
     });
 
@@ -281,7 +664,14 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
     app.get('/auth/api-keys', authMw, async (c) => {
       const payload = c.get('user');
       const keys = await apiKeyStore.listByUserId(payload.userId);
-      return c.json({ keys });
+      return c.json({
+        keys: keys.map((key) => ({
+          id: key.id,
+          name: key.name,
+          apiKey: key.apiKey,
+          createdAt: key.createdAt.toISOString(),
+        })),
+      });
     });
 
     // Create API key (protected)
@@ -294,7 +684,15 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       }
 
       const result = await apiKeyStore.create(payload.userId, body.name);
-      return c.json(result, 201);
+      return c.json(
+        {
+          id: result.key.id,
+          name: result.key.name,
+          apiKey: result.plainKey,
+          createdAt: result.key.createdAt.toISOString(),
+        },
+        201
+      );
     });
 
     // Delete API key (protected)

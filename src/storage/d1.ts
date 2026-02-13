@@ -301,6 +301,14 @@ export function createD1UserStore(db: D1Database): UserStore {
       return row ? rowToRecord(row) : undefined;
     },
 
+    async listByOrg(orgId: string): Promise<StoredUserRecord[]> {
+      const { results } = await db
+        .prepare('SELECT * FROM users WHERE org_id = ?')
+        .bind(orgId)
+        .all<UserRow>();
+      return results.map(rowToRecord);
+    },
+
     async create(user: StoredUserRecord): Promise<StoredUserRecord> {
       await db
         .prepare(
@@ -385,12 +393,14 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
     created_at: string;
   };
 
+  const isPlainApiKey = (value: string): boolean => value.startsWith('ug_');
+
   function rowToKey(row: ApiKeyRow): StoredApiKey {
     return {
       id: row.id,
       userId: row.user_id,
       name: row.name,
-      keyHash: row.key_hash,
+      apiKey: isPlainApiKey(row.key_hash) ? row.key_hash : null,
       createdAt: new Date(row.created_at),
     };
   }
@@ -401,7 +411,6 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
       name: string
     ): Promise<{ key: StoredApiKey; plainKey: string }> {
       const plainKey = generateApiKey();
-      const keyHash = await sha256Hex(plainKey);
       const id = crypto.randomUUID();
       const now = new Date();
 
@@ -409,10 +418,10 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
         .prepare(
           'INSERT INTO api_keys (id, user_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)'
         )
-        .bind(id, userId, name, keyHash, now.toISOString())
+        .bind(id, userId, name, plainKey, now.toISOString())
         .run();
 
-      const key: StoredApiKey = { id, userId, name, keyHash, createdAt: now };
+      const key: StoredApiKey = { id, userId, name, apiKey: plainKey, createdAt: now };
       return { key, plainKey };
     },
 
@@ -432,10 +441,11 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
       return (result.meta?.changes ?? 0) > 0;
     },
 
-    async findUserIdByKeyHash(keyHash: string): Promise<string | undefined> {
+    async findUserIdByApiKey(apiKey: string): Promise<string | undefined> {
+      const keyHash = await sha256Hex(apiKey);
       const row = await db
-        .prepare('SELECT user_id FROM api_keys WHERE key_hash = ?')
-        .bind(keyHash)
+        .prepare('SELECT user_id FROM api_keys WHERE key_hash IN (?, ?) LIMIT 1')
+        .bind(apiKey, keyHash)
         .first<{ user_id: string }>();
       return row?.user_id;
     },

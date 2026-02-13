@@ -31,7 +31,7 @@ export interface Blocklist {
 
 export interface StoredUserRecord {
   userId: string;
-  orgId?: string;
+  orgId?: string | null;
   email?: string;
   passwordHash?: string;
   displayName?: string;
@@ -44,6 +44,7 @@ export interface StoredUserRecord {
 export interface UserStore {
   findByUserId(userId: string): Promise<StoredUserRecord | undefined>;
   findByEmail(email: string): Promise<StoredUserRecord | undefined>;
+  listByOrg(orgId: string): Promise<StoredUserRecord[]>;
   create(user: StoredUserRecord): Promise<StoredUserRecord>;
   update(userId: string, fields: Partial<StoredUserRecord>): Promise<StoredUserRecord | undefined>;
 }
@@ -52,7 +53,7 @@ export interface StoredApiKey {
   id: string;
   userId: string;
   name: string;
-  keyHash: string;
+  apiKey: string | null;
   createdAt: Date;
 }
 
@@ -60,5 +61,5 @@ export interface ApiKeyStore {
   create(userId: string, name: string): Promise<{ key: StoredApiKey; plainKey: string }>;
   listByUserId(userId: string): Promise<StoredApiKey[]>;
   delete(userId: string, keyId: string): Promise<boolean>;
-  findUserIdByKeyHash(keyHash: string): Promise<string | undefined>;
+  findUserIdByApiKey(apiKey: string): Promise<string | undefined>;
 }
