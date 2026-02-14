@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore } from '../storage/interfaces';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
@@ -19,6 +19,7 @@ export interface AdminRouteDeps {
   blocklist: Blocklist;
   userStore?: UserStore;
   apiKeyStore?: ApiKeyStore;
+  requestLogStore?: RequestLogStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -39,6 +40,14 @@ const sdkCheckSchema = z.object({
   model: z.string().min(1),
   estimatedTokens: z.number().int().nonnegative().optional(),
   requestType: z.enum(['realtime', 'chat', 'embeddings']),
+});
+
+const sdkLogSchema = z.object({
+  model: z.string().min(1),
+  request: z.record(z.unknown()),
+  response: z.record(z.unknown()).optional(),
+  status: z.string().optional(),
+  latencyMs: z.number().nonnegative().optional(),
 });
 
 const sdkRecordSchema = z.object({
@@ -103,7 +112,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, logger, jwtSecret, jwtExpiresIn } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, logger, jwtSecret, jwtExpiresIn } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -488,6 +497,55 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       const paged = limit ? events.slice(offset, offset + limit) : events.slice(offset);
       return c.json({ events: paged, total: events.length });
     });
+
+    // Request logs (dashboard endpoints)
+    if (requestLogStore) {
+      app.get('/admin/orgs/:orgId/logs', async (c) => {
+        const orgId = c.req.param('orgId');
+        const limit = Number.parseInt(c.req.query('limit') ?? '25', 10);
+        const offset = Number.parseInt(c.req.query('offset') ?? '0', 10);
+        const { logs, total } = await requestLogStore.listByOrgId(orgId, { limit, offset });
+        return c.json({
+          logs: logs.map((log) => ({
+            id: log.id,
+            userId: log.userId,
+            orgId: log.orgId,
+            model: log.model,
+            requestBody: log.requestBody,
+            responseBody: log.responseBody,
+            status: log.status,
+            promptTokens: log.promptTokens,
+            completionTokens: log.completionTokens,
+            totalTokens: log.totalTokens,
+            latencyMs: log.latencyMs,
+            createdAt: log.createdAt.toISOString(),
+          })),
+          total,
+        });
+      });
+
+      app.get('/admin/orgs/:orgId/logs/:logId', async (c) => {
+        const logId = c.req.param('logId');
+        const log = await requestLogStore.getById(logId);
+        if (!log) {
+          return c.json({ error: 'Log not found' }, 404);
+        }
+        return c.json({
+          id: log.id,
+          userId: log.userId,
+          orgId: log.orgId,
+          model: log.model,
+          requestBody: log.requestBody,
+          responseBody: log.responseBody,
+          status: log.status,
+          promptTokens: log.promptTokens,
+          completionTokens: log.completionTokens,
+          totalTokens: log.totalTokens,
+          latencyMs: log.latencyMs,
+          createdAt: log.createdAt.toISOString(),
+        });
+      });
+    }
   }
 
   // Block user
@@ -825,6 +883,51 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         blocked,
       });
     });
+
+    // Log full request/response
+    if (requestLogStore && userStore) {
+      app.post('/sdk/log', apiKeyMw, async (c) => {
+        const body = await c.req.json().catch(() => ({}));
+        const result = sdkLogSchema.safeParse(body);
+        if (!result.success) {
+          return c.json({ error: result.error.issues }, 400);
+        }
+
+        const userId = c.get('apiKeyUserId');
+        const user = await userStore.findByUserId(userId);
+        const orgId = user?.orgId ?? null;
+
+        const { model, request: reqBody, response: resBody, status, latencyMs } = result.data;
+
+        // Extract token counts from response.usage if present
+        const usage = resBody?.usage as
+          | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+          | undefined;
+        const promptTokens = usage?.prompt_tokens ?? null;
+        const completionTokens = usage?.completion_tokens ?? null;
+        const totalTokens = usage?.total_tokens ?? null;
+
+        const id = crypto.randomUUID();
+        const log = await requestLogStore.create({
+          id,
+          userId,
+          orgId,
+          model,
+          requestBody: JSON.stringify(reqBody),
+          responseBody: resBody ? JSON.stringify(resBody) : null,
+          status: status ?? 'success',
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          latencyMs: latencyMs ?? null,
+          createdAt: new Date(),
+        });
+
+        logger.info({ logId: log.id, userId, model }, 'Request logged');
+
+        return c.json({ id: log.id, recorded: true }, 201);
+      });
+    }
   }
 
   return app;

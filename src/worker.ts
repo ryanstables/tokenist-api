@@ -4,6 +4,7 @@ import {
   createD1Blocklist,
   createD1UserStore,
   createD1ApiKeyStore,
+  createD1RequestLogStore,
 } from './storage/d1';
 
 interface Env {
@@ -35,6 +36,7 @@ export default {
       blocklist: createD1Blocklist(env.DB),
       userStore: createD1UserStore(env.DB),
       apiKeyStore: createD1ApiKeyStore(env.DB),
+      requestLogStore: createD1RequestLogStore(env.DB),
     });
 
     return tokenist.fetch(request);

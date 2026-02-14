@@ -1,45 +1,123 @@
-// Pricing per 1K tokens in USD
+// Pricing per 1K tokens in USD (converted from OpenAI per-1M token prices)
 export interface ModelPricing {
   inputPer1K: number;
   outputPer1K: number;
   audioPer1K?: number;
+  cachedInputPer1K?: number;
 }
 
+// Helper: price per 1M → per 1K
+const per1K = (per1M: number) => per1M / 1000;
+
 const PRICING: Record<string, ModelPricing> = {
-  // GPT-4o Realtime models
+  // GPT-5 series
+  'gpt-5.2': { inputPer1K: per1K(1.75), outputPer1K: per1K(14), cachedInputPer1K: per1K(0.175) },
+  'gpt-5.1': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5-mini': { inputPer1K: per1K(0.25), outputPer1K: per1K(2), cachedInputPer1K: per1K(0.025) },
+  'gpt-5-nano': { inputPer1K: per1K(0.05), outputPer1K: per1K(0.4), cachedInputPer1K: per1K(0.005) },
+  'gpt-5.2-chat-latest': { inputPer1K: per1K(1.75), outputPer1K: per1K(14), cachedInputPer1K: per1K(0.175) },
+  'gpt-5.1-chat-latest': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5-chat-latest': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5.2-codex': { inputPer1K: per1K(1.75), outputPer1K: per1K(14), cachedInputPer1K: per1K(0.175) },
+  'gpt-5.1-codex-max': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5.1-codex': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5-codex': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+  'gpt-5.2-pro': { inputPer1K: per1K(21), outputPer1K: per1K(168) },
+  'gpt-5-pro': { inputPer1K: per1K(15), outputPer1K: per1K(120) },
+  'gpt-5.1-codex-mini': { inputPer1K: per1K(0.25), outputPer1K: per1K(2), cachedInputPer1K: per1K(0.025) },
+  'gpt-5-search-api': { inputPer1K: per1K(1.25), outputPer1K: per1K(10), cachedInputPer1K: per1K(0.125) },
+
+  // GPT-4.1
+  'gpt-4.1': { inputPer1K: per1K(2), outputPer1K: per1K(8), cachedInputPer1K: per1K(0.5) },
+  'gpt-4.1-mini': { inputPer1K: per1K(0.4), outputPer1K: per1K(1.6), cachedInputPer1K: per1K(0.1) },
+  'gpt-4.1-nano': { inputPer1K: per1K(0.1), outputPer1K: per1K(0.4), cachedInputPer1K: per1K(0.025) },
+
+  // GPT-4o
+  'gpt-4o': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), cachedInputPer1K: per1K(1.25) },
+  'gpt-4o-2024-05-13': { inputPer1K: per1K(5), outputPer1K: per1K(15) },
+  'gpt-4o-mini': { inputPer1K: per1K(0.15), outputPer1K: per1K(0.6), cachedInputPer1K: per1K(0.075) },
+  'gpt-4o-mini-search-preview': { inputPer1K: per1K(0.15), outputPer1K: per1K(0.6) },
+  'gpt-4o-search-preview': { inputPer1K: per1K(2.5), outputPer1K: per1K(10) },
+
+  // Realtime (text + audio rates from Audio tokens table per 1M → per 1K)
+  'gpt-realtime': {
+    inputPer1K: per1K(4),
+    outputPer1K: per1K(16),
+    cachedInputPer1K: per1K(0.4),
+    audioPer1K: per1K(64), // audio output per 1M
+  },
+  'gpt-realtime-mini': {
+    inputPer1K: per1K(0.6),
+    outputPer1K: per1K(2.4),
+    cachedInputPer1K: per1K(0.06),
+    audioPer1K: per1K(20),
+  },
   'gpt-4o-realtime-preview': {
-    inputPer1K: 0.06,
-    outputPer1K: 0.24,
-    audioPer1K: 0.24,
+    inputPer1K: per1K(5),
+    outputPer1K: per1K(20),
+    cachedInputPer1K: per1K(2.5),
+    audioPer1K: per1K(80),
   },
-  'gpt-4o-realtime-preview-2024-10-01': {
-    inputPer1K: 0.06,
-    outputPer1K: 0.24,
-    audioPer1K: 0.24,
-  },
-  'gpt-4o-realtime-preview-2024-12-17': {
-    inputPer1K: 0.06,
-    outputPer1K: 0.24,
-    audioPer1K: 0.24,
-  },
-  // GPT-4o mini Realtime models
   'gpt-4o-mini-realtime-preview': {
-    inputPer1K: 0.01,
-    outputPer1K: 0.04,
-    audioPer1K: 0.04,
+    inputPer1K: per1K(0.6),
+    outputPer1K: per1K(2.4),
+    cachedInputPer1K: per1K(0.3),
+    audioPer1K: per1K(20),
   },
-  'gpt-4o-mini-realtime-preview-2024-12-17': {
-    inputPer1K: 0.01,
-    outputPer1K: 0.04,
-    audioPer1K: 0.04,
-  },
+
+  // Audio
+  'gpt-audio': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioPer1K: per1K(64) },
+  'gpt-audio-mini': { inputPer1K: per1K(0.6), outputPer1K: per1K(2.4), audioPer1K: per1K(20) },
+  'gpt-4o-audio-preview': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioPer1K: per1K(80) },
+  'gpt-4o-mini-audio-preview': { inputPer1K: per1K(0.15), outputPer1K: per1K(0.6), audioPer1K: per1K(20) },
+
+  // O-series
+  'o1': { inputPer1K: per1K(15), outputPer1K: per1K(60), cachedInputPer1K: per1K(7.5) },
+  'o1-pro': { inputPer1K: per1K(150), outputPer1K: per1K(600) },
+  'o1-mini': { inputPer1K: per1K(1.1), outputPer1K: per1K(4.4), cachedInputPer1K: per1K(0.55) },
+  'o3-pro': { inputPer1K: per1K(20), outputPer1K: per1K(80) },
+  'o3': { inputPer1K: per1K(2), outputPer1K: per1K(8), cachedInputPer1K: per1K(0.5) },
+  'o3-deep-research': { inputPer1K: per1K(10), outputPer1K: per1K(40), cachedInputPer1K: per1K(2.5) },
+  'o3-mini': { inputPer1K: per1K(1.1), outputPer1K: per1K(4.4), cachedInputPer1K: per1K(0.55) },
+  'o4-mini': { inputPer1K: per1K(1.1), outputPer1K: per1K(4.4), cachedInputPer1K: per1K(0.275) },
+  'o4-mini-deep-research': { inputPer1K: per1K(2), outputPer1K: per1K(8), cachedInputPer1K: per1K(0.5) },
+
+  // Codex / other
+  'codex-mini-latest': { inputPer1K: per1K(1.5), outputPer1K: per1K(6), cachedInputPer1K: per1K(0.375) },
+  'computer-use-preview': { inputPer1K: per1K(3), outputPer1K: per1K(12) },
+
+  // Image (text tokens)
+  'gpt-image-1.5': { inputPer1K: per1K(5), outputPer1K: per1K(10), cachedInputPer1K: per1K(1.25) },
+  'chatgpt-image-latest': { inputPer1K: per1K(5), outputPer1K: per1K(10), cachedInputPer1K: per1K(1.25) },
+  'gpt-image-1': { inputPer1K: per1K(5), outputPer1K: 0, cachedInputPer1K: per1K(1.25) },
+  'gpt-image-1-mini': { inputPer1K: per1K(2), outputPer1K: 0, cachedInputPer1K: per1K(0.2) },
+
+  // Legacy
+  'chatgpt-4o-latest': { inputPer1K: per1K(5), outputPer1K: per1K(15) },
+  'gpt-4-turbo-2024-04-09': { inputPer1K: per1K(10), outputPer1K: per1K(30) },
+  'gpt-4-0125-preview': { inputPer1K: per1K(10), outputPer1K: per1K(30) },
+  'gpt-4-1106-preview': { inputPer1K: per1K(10), outputPer1K: per1K(30) },
+  'gpt-4-1106-vision-preview': { inputPer1K: per1K(10), outputPer1K: per1K(30) },
+  'gpt-4-0613': { inputPer1K: per1K(30), outputPer1K: per1K(60) },
+  'gpt-4-0314': { inputPer1K: per1K(30), outputPer1K: per1K(60) },
+  'gpt-4-32k': { inputPer1K: per1K(60), outputPer1K: per1K(120) },
+  'gpt-3.5-turbo': { inputPer1K: per1K(0.5), outputPer1K: per1K(1.5) },
+  'gpt-3.5-turbo-0125': { inputPer1K: per1K(0.5), outputPer1K: per1K(1.5) },
+  'gpt-3.5-turbo-1106': { inputPer1K: per1K(1), outputPer1K: per1K(2) },
+  'gpt-3.5-turbo-0613': { inputPer1K: per1K(1.5), outputPer1K: per1K(2) },
+  'gpt-3.5-0301': { inputPer1K: per1K(1.5), outputPer1K: per1K(2) },
+  'gpt-3.5-turbo-instruct': { inputPer1K: per1K(1.5), outputPer1K: per1K(2) },
+  'gpt-3.5-turbo-16k-0613': { inputPer1K: per1K(3), outputPer1K: per1K(4) },
+  'davinci-002': { inputPer1K: per1K(2), outputPer1K: per1K(2) },
+  'babbage-002': { inputPer1K: per1K(0.4), outputPer1K: per1K(0.4) },
 };
 
-// Default pricing for unknown models
+// Default pricing for unknown models (aligned with gpt-4o-realtime-preview text rates)
 const DEFAULT_PRICING: ModelPricing = {
-  inputPer1K: 0.06,
-  outputPer1K: 0.24,
-  audioPer1K: 0.24,
+  inputPer1K: per1K(5),
+  outputPer1K: per1K(20),
+  audioPer1K: per1K(80),
 };
 
 export function getPricing(model: string): ModelPricing {

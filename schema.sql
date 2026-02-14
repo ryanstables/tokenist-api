@@ -56,3 +56,22 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_usage_user_id ON usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Request/response logs
+CREATE TABLE IF NOT EXISTS request_logs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  org_id TEXT,
+  model TEXT NOT NULL,
+  request_body TEXT NOT NULL,
+  response_body TEXT,
+  status TEXT NOT NULL DEFAULT 'success',
+  prompt_tokens INTEGER,
+  completion_tokens INTEGER,
+  total_tokens INTEGER,
+  latency_ms REAL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_org_id ON request_logs(org_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);

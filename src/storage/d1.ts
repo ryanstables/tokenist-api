@@ -7,6 +7,8 @@ import type {
   StoredUserRecord,
   ApiKeyStore,
   StoredApiKey,
+  RequestLogStore,
+  StoredRequestLog,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
@@ -448,6 +450,94 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
         .bind(apiKey, keyHash)
         .first<{ user_id: string }>();
       return row?.user_id;
+    },
+  };
+}
+
+export function createD1RequestLogStore(db: D1Database): RequestLogStore {
+  type LogRow = {
+    id: string;
+    user_id: string;
+    org_id: string | null;
+    model: string;
+    request_body: string;
+    response_body: string | null;
+    status: string;
+    prompt_tokens: number | null;
+    completion_tokens: number | null;
+    total_tokens: number | null;
+    latency_ms: number | null;
+    created_at: string;
+  };
+
+  function rowToLog(row: LogRow): StoredRequestLog {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      orgId: row.org_id,
+      model: row.model,
+      requestBody: row.request_body,
+      responseBody: row.response_body,
+      status: row.status,
+      promptTokens: row.prompt_tokens,
+      completionTokens: row.completion_tokens,
+      totalTokens: row.total_tokens,
+      latencyMs: row.latency_ms,
+      createdAt: new Date(row.created_at),
+    };
+  }
+
+  return {
+    async create(log: StoredRequestLog): Promise<StoredRequestLog> {
+      await db
+        .prepare(
+          `INSERT INTO request_logs (id, user_id, org_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          log.id,
+          log.userId,
+          log.orgId ?? null,
+          log.model,
+          log.requestBody,
+          log.responseBody ?? null,
+          log.status,
+          log.promptTokens ?? null,
+          log.completionTokens ?? null,
+          log.totalTokens ?? null,
+          log.latencyMs ?? null,
+          log.createdAt.toISOString()
+        )
+        .run();
+      return log;
+    },
+
+    async listByOrgId(
+      orgId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const countRow = await db
+        .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ?')
+        .bind(orgId)
+        .first<{ cnt: number }>();
+      const total = countRow?.cnt ?? 0;
+
+      const { results } = await db
+        .prepare(
+          'SELECT * FROM request_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        )
+        .bind(orgId, opts.limit, opts.offset)
+        .all<LogRow>();
+
+      return { logs: results.map(rowToLog), total };
+    },
+
+    async getById(id: string): Promise<StoredRequestLog | undefined> {
+      const row = await db
+        .prepare('SELECT * FROM request_logs WHERE id = ?')
+        .bind(id)
+        .first<LogRow>();
+      return row ? rowToLog(row) : undefined;
     },
   };
 }

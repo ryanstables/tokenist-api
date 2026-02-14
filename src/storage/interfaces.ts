@@ -63,3 +63,24 @@ export interface ApiKeyStore {
   delete(userId: string, keyId: string): Promise<boolean>;
   findUserIdByApiKey(apiKey: string): Promise<string | undefined>;
 }
+
+export interface StoredRequestLog {
+  id: string;
+  userId: string;
+  orgId?: string | null;
+  model: string;
+  requestBody: string;
+  responseBody?: string | null;
+  status: string;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  latencyMs?: number | null;
+  createdAt: Date;
+}
+
+export interface RequestLogStore {
+  create(log: StoredRequestLog): Promise<StoredRequestLog>;
+  listByOrgId(orgId: string, opts: { limit: number; offset: number }): Promise<{ logs: StoredRequestLog[]; total: number }>;
+  getById(id: string): Promise<StoredRequestLog | undefined>;
+}

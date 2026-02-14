@@ -16,7 +16,8 @@
     "dev": "wrangler dev src/worker.ts --port 8081",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "example:log-with-fetch": "tsx examples/log-with-fetch.ts"
   },
   "dependencies": {
     "hono": "^4.6.0",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0",
     "wrangler": "^3.91.0"

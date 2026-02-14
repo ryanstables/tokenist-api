@@ -7,6 +7,8 @@ import type {
   StoredUserRecord,
   ApiKeyStore,
   StoredApiKey,
+  RequestLogStore,
+  StoredRequestLog,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
@@ -261,6 +263,34 @@ export function createInMemoryApiKeyStore(): ApiKeyStore {
       const keyId = apiKeyIndex.get(apiKey);
       if (!keyId) return undefined;
       return keys.get(keyId)?.userId;
+    },
+  };
+}
+
+export function createInMemoryRequestLogStore(): RequestLogStore {
+  const logs: StoredRequestLog[] = [];
+
+  return {
+    async create(log: StoredRequestLog): Promise<StoredRequestLog> {
+      logs.push(log);
+      return log;
+    },
+
+    async listByOrgId(
+      orgId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const filtered = logs
+        .filter((l) => l.orgId === orgId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return {
+        logs: filtered.slice(opts.offset, opts.offset + opts.limit),
+        total: filtered.length,
+      };
+    },
+
+    async getById(id: string): Promise<StoredRequestLog | undefined> {
+      return logs.find((l) => l.id === id);
     },
   };
 }
