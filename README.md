@@ -351,6 +351,7 @@ Log a full request/response payload with user context.
   "latencyMs": 342,
   "status": "success",
   "conversationId": "conv-abc123",
+  "userId": "user_alice",
   "userEmail": "alice@example.com",
   "userName": "Alice Smith"
 }
@@ -364,6 +365,7 @@ Log a full request/response payload with user context.
 | `latencyMs` | number | No | Request latency in milliseconds |
 | `status` | string | No | `"success"` (default) or `"error"` |
 | `conversationId` | string | No | Groups related requests. Auto-generated UUID if omitted |
+| `userId` | string | No | End-user id (unique per tracked user). If omitted, the API key owner's id is used; pass a unique value per end user so they appear separately in the dashboard |
 | `userEmail` | string | No | Email of the user who triggered the request |
 | `userName` | string | No | Display name of the user |
 

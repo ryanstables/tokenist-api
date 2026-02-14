@@ -40,7 +40,7 @@ export async function handleWebSocketUpgrade(
       return new Response(identityResult.error, { status: identityResult.code });
     }
 
-    const { userId, orgId, email, name } = identityResult.identity;
+    const { endUserId, orgId, email, name } = identityResult.identity;
 
     // Use client-supplied conversation ID or generate one
     const conversationId =
@@ -58,23 +58,23 @@ export async function handleWebSocketUpgrade(
       return new Response('Unauthorized', { status: 401 });
     }
 
-    connLogger.info({ userId, orgId }, 'User identity resolved');
+    connLogger.info({ endUserId, orgId }, 'End user identity resolved');
 
     // Check blocklist
-    if (await blocklist.isBlocked(userId)) {
-      const entry = await blocklist.getBlockEntry(userId);
-      connLogger.warn({ reason: entry?.reason }, 'User is blocked');
+    if (await blocklist.isBlocked(endUserId)) {
+      const entry = await blocklist.getBlockEntry(endUserId);
+      connLogger.warn({ reason: entry?.reason }, 'End user is blocked');
       return new Response('Forbidden', { status: 403 });
     }
 
     // Check threshold
-    const thresholdCheck = await checkThreshold(usageStore, userId);
+    const thresholdCheck = await checkThreshold(usageStore, endUserId);
     if (thresholdCheck.exceeded) {
-      connLogger.warn({ reason: thresholdCheck.reason }, 'User has exceeded threshold');
+      connLogger.warn({ reason: thresholdCheck.reason }, 'End user has exceeded threshold');
       return new Response('Forbidden', { status: 403 });
     }
 
-    connLogger.info({ model, userId, orgId }, 'WebSocket upgrade requested');
+    connLogger.info({ model, endUserId, orgId }, 'WebSocket upgrade requested');
 
     // Create WebSocket pair for the client
     const pair = new WebSocketPair();
@@ -89,7 +89,7 @@ export async function handleWebSocketUpgrade(
         setupRelay(
           serverSocket,
           upstream,
-          { connectionId, userId, orgId, email, name, conversationId, model },
+          { connectionId, endUserId, orgId, email, name, conversationId, model },
           usageStore,
           logger,
           relayHooks

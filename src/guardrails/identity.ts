@@ -1,8 +1,8 @@
-import type { UserIdentity } from '../types/user';
+import type { EndUserIdentity } from '../types/user';
 
 export interface IdentityResult {
   success: true;
-  identity: UserIdentity;
+  identity: EndUserIdentity;
 }
 
 export interface IdentityError {
@@ -13,10 +13,14 @@ export interface IdentityError {
 
 export type ExtractIdentityResult = IdentityResult | IdentityError;
 
+/**
+ * Extracts end-user identity from request headers.
+ * External headers (x-user-id etc.) are unchanged; internally we map to endUserId.
+ */
 export function extractIdentity(request: Request): ExtractIdentityResult {
-  const userId = request.headers.get('x-user-id');
+  const endUserId = request.headers.get('x-user-id');
 
-  if (!userId || userId.trim() === '') {
+  if (!endUserId || endUserId.trim() === '') {
     return {
       success: false,
       error: 'Missing or invalid x-user-id header',
@@ -31,7 +35,7 @@ export function extractIdentity(request: Request): ExtractIdentityResult {
   return {
     success: true,
     identity: {
-      userId: userId.trim(),
+      endUserId: endUserId.trim(),
       orgId: orgId ? orgId.trim() : undefined,
       email: email ? email.trim() : undefined,
       name: name ? name.trim() : undefined,

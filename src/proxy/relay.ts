@@ -8,7 +8,7 @@ import { checkThreshold } from '../guardrails/policy';
 
 export interface RelayContext {
   connectionId: string;
-  userId: string;
+  endUserId: string;
   orgId?: string;
   email?: string;
   name?: string;
@@ -34,7 +34,7 @@ export function setupRelay(
   const relayLogger = logger.child({
     component: 'relay',
     connectionId: context.connectionId,
-    userId: context.userId,
+    endUserId: context.endUserId,
   });
 
   // Client → Upstream
@@ -71,13 +71,13 @@ export function setupRelay(
       );
       if (actualUsage.inputTokens > 0 || actualUsage.outputTokens > 0) {
         const usage = await store.updateUsage(
-          context.userId,
+          context.endUserId,
           context.model,
           actualUsage.inputTokens,
           actualUsage.outputTokens,
           context.periodKey
         );
-        const thresholdCheck = await checkThreshold(store, context.userId, usage);
+        const thresholdCheck = await checkThreshold(store, context.endUserId, usage);
         if (thresholdCheck.exceeded) {
           relayLogger.warn({ reason: thresholdCheck.reason }, 'Threshold exceeded');
           if (hooks.onThresholdExceeded) {
@@ -92,7 +92,7 @@ export function setupRelay(
       const estimate = estimateUpstreamMessageTokens(message);
       if (estimate.outputTokens > 0) {
         const usage = await store.updateUsage(
-          context.userId,
+          context.endUserId,
           context.model,
           0,
           estimate.outputTokens,
@@ -102,7 +102,7 @@ export function setupRelay(
           { outputTokens: estimate.outputTokens, totalCost: usage.costUsd },
           'Output tokens counted (Tiktoken fallback)'
         );
-        const thresholdCheck = await checkThreshold(store, context.userId, usage);
+        const thresholdCheck = await checkThreshold(store, context.endUserId, usage);
         if (thresholdCheck.exceeded) {
           relayLogger.warn({ reason: thresholdCheck.reason }, 'Threshold exceeded');
           if (hooks.onThresholdExceeded) {
