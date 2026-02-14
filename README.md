@@ -132,7 +132,10 @@ Clients connect via WebSocket with user identity headers:
 const ws = new WebSocket('wss://your-worker.workers.dev/v1/realtime?model=gpt-4o-realtime-preview', {
   headers: {
     'x-user-id': 'user-123',
-    'x-org-id': 'org-456',  // optional
+    'x-org-id': 'org-456',          // optional
+    'x-user-email': 'alice@co.com', // optional – tracked with events
+    'x-user-name': 'Alice Smith',   // optional – tracked with events
+    'x-conversation-id': 'conv-1',  // optional – auto-generated if omitted
     // Optionally pass your own API key:
     // 'Authorization': 'Bearer sk-...'
   }
@@ -150,6 +153,9 @@ Upgrade to WebSocket connection for OpenAI Realtime API.
 **Headers:**
 - `x-user-id` (required): User identifier for tracking
 - `x-org-id` (optional): Organization identifier
+- `x-user-email` (optional): User email address – stored with logged events
+- `x-user-name` (optional): User display name – stored with logged events
+- `x-conversation-id` (optional): Conversation ID to group requests/responses together. Auto-generated (UUID) if not provided
 - `Authorization` (optional): `Bearer <api-key>` - uses server key if not provided
 
 **Query Parameters:**
@@ -330,6 +336,45 @@ Record usage after a request completes.
   "outputTokens": 1200,
   "latencyMs": 2300,
   "success": true
+}
+```
+
+#### `POST /sdk/log`
+Log a full request/response payload with user context.
+
+**Body:**
+```json
+{
+  "model": "gpt-4o",
+  "request": { "messages": [{ "role": "user", "content": "Hello" }] },
+  "response": { "choices": [{ "message": { "content": "Hi!" } }], "usage": { "prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8 } },
+  "latencyMs": 342,
+  "status": "success",
+  "conversationId": "conv-abc123",
+  "userId": "user_alice",
+  "userEmail": "alice@example.com",
+  "userName": "Alice Smith"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | Yes | Model name |
+| `request` | object | Yes | Full request body |
+| `response` | object | No | Full response body |
+| `latencyMs` | number | No | Request latency in milliseconds |
+| `status` | string | No | `"success"` (default) or `"error"` |
+| `conversationId` | string | No | Groups related requests. Auto-generated UUID if omitted |
+| `userId` | string | No | End-user id (unique per tracked user). If omitted, the API key owner's id is used; pass a unique value per end user so they appear separately in the dashboard |
+| `userEmail` | string | No | Email of the user who triggered the request |
+| `userName` | string | No | Display name of the user |
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "conversationId": "conv-abc123",
+  "recorded": true
 }
 ```
 

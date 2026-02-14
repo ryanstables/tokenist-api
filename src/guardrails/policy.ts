@@ -1,5 +1,5 @@
 import type { UsageStore } from '../storage/interfaces';
-import type { UserUsage } from '../types/user';
+import type { EndUserUsage } from '../types/user';
 
 export interface ThresholdCheck {
   exceeded: boolean;
@@ -8,11 +8,11 @@ export interface ThresholdCheck {
 
 export async function checkThreshold(
   store: UsageStore,
-  userId: string,
-  usage?: UserUsage | null
+  endUserId: string,
+  usage?: EndUserUsage | null
 ): Promise<ThresholdCheck> {
-  const resolvedUsage = usage ?? (await store.getUsage(userId));
-  const threshold = await store.getThreshold(userId);
+  const resolvedUsage = usage ?? (await store.getUsage(endUserId));
+  const threshold = await store.getThreshold(endUserId);
 
   if (!resolvedUsage) {
     return { exceeded: false };

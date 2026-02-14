@@ -1,31 +1,31 @@
-import type { UserUsage, UserThreshold } from '../types/user';
+import type { EndUserUsage, EndUserThreshold } from '../types/user';
 
 export interface BlockEntry {
-  userId: string;
+  endUserId: string;
   reason?: string;
   blockedAt: Date;
   expiresAt?: Date;
 }
 
 export interface UsageStore {
-  getUsage(userId: string, periodKey?: string): Promise<UserUsage | undefined>;
+  getUsage(endUserId: string, periodKey?: string): Promise<EndUserUsage | undefined>;
   updateUsage(
-    userId: string,
+    endUserId: string,
     model: string,
     inputTokens: number,
     outputTokens: number,
     periodKey?: string
-  ): Promise<UserUsage>;
-  getThreshold(userId: string): Promise<UserThreshold>;
-  setThreshold(userId: string, threshold: UserThreshold): Promise<void>;
-  getAllUsers(): Promise<Map<string, UserUsage>>;
+  ): Promise<EndUserUsage>;
+  getThreshold(endUserId: string): Promise<EndUserThreshold>;
+  setThreshold(endUserId: string, threshold: EndUserThreshold): Promise<void>;
+  getAllEndUsers(): Promise<Map<string, EndUserUsage>>;
 }
 
 export interface Blocklist {
-  isBlocked(userId: string): Promise<boolean>;
-  getBlockEntry(userId: string): Promise<BlockEntry | undefined>;
-  block(userId: string, reason?: string, expiresAt?: Date): Promise<void>;
-  unblock(userId: string): Promise<boolean>;
+  isBlocked(endUserId: string): Promise<boolean>;
+  getBlockEntry(endUserId: string): Promise<BlockEntry | undefined>;
+  block(endUserId: string, reason?: string, expiresAt?: Date): Promise<void>;
+  unblock(endUserId: string): Promise<boolean>;
   getAll(): Promise<BlockEntry[]>;
 }
 
@@ -35,7 +35,7 @@ export interface StoredUserRecord {
   email?: string;
   passwordHash?: string;
   displayName?: string;
-  threshold?: UserThreshold;
+  threshold?: EndUserThreshold;
   usageWindow?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -66,8 +66,11 @@ export interface ApiKeyStore {
 
 export interface StoredRequestLog {
   id: string;
-  userId: string;
+  endUserId: string;
   orgId?: string | null;
+  endUserEmail?: string | null;
+  endUserName?: string | null;
+  conversationId: string;
   model: string;
   requestBody: string;
   responseBody?: string | null;
@@ -79,8 +82,20 @@ export interface StoredRequestLog {
   createdAt: Date;
 }
 
+export interface OrgLogEndUser {
+  endUserId: string;
+  endUserEmail?: string | null;
+  endUserName?: string | null;
+}
+
 export interface RequestLogStore {
   create(log: StoredRequestLog): Promise<StoredRequestLog>;
   listByOrgId(orgId: string, opts: { limit: number; offset: number }): Promise<{ logs: StoredRequestLog[]; total: number }>;
+  listEndUsersByOrgId(orgId: string): Promise<OrgLogEndUser[]>;
+  listByOrgIdAndEndUserId(
+    orgId: string,
+    endUserId: string,
+    opts: { limit: number; offset: number }
+  ): Promise<{ logs: StoredRequestLog[]; total: number }>;
   getById(id: string): Promise<StoredRequestLog | undefined>;
 }

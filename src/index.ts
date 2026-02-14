@@ -21,9 +21,9 @@ export type {
 } from './storage/interfaces';
 export type {
   UsageWindow,
-  UserIdentity,
-  UserUsage,
-  UserThreshold,
+  EndUserIdentity,
+  EndUserUsage,
+  EndUserThreshold,
   ConnectionContext,
   UsagePeriodKey,
   UsageHistoryEntry,

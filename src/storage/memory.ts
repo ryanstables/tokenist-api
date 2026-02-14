@@ -1,4 +1,4 @@
-import type { UserUsage, UserThreshold } from '../types/user';
+import type { EndUserUsage, EndUserThreshold } from '../types/user';
 import type {
   UsageStore,
   Blocklist,
@@ -9,12 +9,13 @@ import type {
   StoredApiKey,
   RequestLogStore,
   StoredRequestLog,
+  OrgLogEndUser,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
-interface StoredUserData {
-  usage: UserUsage;
-  threshold?: UserThreshold;
+interface StoredEndUserData {
+  usage: EndUserUsage;
+  threshold?: EndUserThreshold;
 }
 
 export interface InMemoryStoreOptions {
@@ -23,20 +24,21 @@ export interface InMemoryStoreOptions {
 }
 
 export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): UsageStore {
-  const cache = new Map<string, StoredUserData>();
+  const cache = new Map<string, StoredEndUserData>();
 
   return {
-    async getUsage(userId: string): Promise<UserUsage | undefined> {
-      return cache.get(userId)?.usage;
+    async getUsage(endUserId: string, _periodKey?: string): Promise<EndUserUsage | undefined> {
+      return cache.get(endUserId)?.usage;
     },
 
     async updateUsage(
-      userId: string,
+      endUserId: string,
       model: string,
       inputTokens: number,
-      outputTokens: number
-    ): Promise<UserUsage> {
-      const existing = cache.get(userId);
+      outputTokens: number,
+      _periodKey?: string
+    ): Promise<EndUserUsage> {
+      const existing = cache.get(endUserId);
       const currentUsage = existing?.usage || {
         inputTokens: 0,
         outputTokens: 0,
@@ -50,7 +52,7 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       const newTotalTokens = newInputTokens + newOutputTokens;
       const newCost = calculateCost(model, newInputTokens, newOutputTokens);
 
-      const newUsage: UserUsage = {
+      const newUsage: EndUserUsage = {
         inputTokens: newInputTokens,
         outputTokens: newOutputTokens,
         totalTokens: newTotalTokens,
@@ -58,7 +60,7 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
         lastUpdated: new Date(),
       };
 
-      cache.set(userId, {
+      cache.set(endUserId, {
         usage: newUsage,
         threshold: existing?.threshold,
       });
@@ -66,8 +68,8 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       return newUsage;
     },
 
-    async getThreshold(userId: string): Promise<UserThreshold> {
-      const stored = cache.get(userId);
+    async getThreshold(endUserId: string): Promise<EndUserThreshold> {
+      const stored = cache.get(endUserId);
       return (
         stored?.threshold || {
           maxCostUsd:
@@ -82,9 +84,9 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       );
     },
 
-    async setThreshold(userId: string, threshold: UserThreshold): Promise<void> {
-      const existing = cache.get(userId);
-      cache.set(userId, {
+    async setThreshold(endUserId: string, threshold: EndUserThreshold): Promise<void> {
+      const existing = cache.get(endUserId);
+      cache.set(endUserId, {
         usage: existing?.usage || {
           inputTokens: 0,
           outputTokens: 0,
@@ -96,8 +98,8 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       });
     },
 
-    async getAllUsers(): Promise<Map<string, UserUsage>> {
-      const result = new Map<string, UserUsage>();
+    async getAllEndUsers(): Promise<Map<string, EndUserUsage>> {
+      const result = new Map<string, EndUserUsage>();
       for (const [key, value] of cache.entries()) {
         result.set(key, value.usage);
       }
@@ -110,37 +112,37 @@ export function createInMemoryBlocklist(): Blocklist {
   const cache = new Map<string, BlockEntry>();
 
   return {
-    async isBlocked(userId: string): Promise<boolean> {
-      const entry = cache.get(userId);
+    async isBlocked(endUserId: string): Promise<boolean> {
+      const entry = cache.get(endUserId);
       if (!entry) return false;
       if (entry.expiresAt && entry.expiresAt < new Date()) {
-        cache.delete(userId);
+        cache.delete(endUserId);
         return false;
       }
       return true;
     },
 
-    async getBlockEntry(userId: string): Promise<BlockEntry | undefined> {
-      const entry = cache.get(userId);
+    async getBlockEntry(endUserId: string): Promise<BlockEntry | undefined> {
+      const entry = cache.get(endUserId);
       if (!entry) return undefined;
       if (entry.expiresAt && entry.expiresAt < new Date()) {
-        cache.delete(userId);
+        cache.delete(endUserId);
         return undefined;
       }
       return entry;
     },
 
-    async block(userId: string, reason?: string, expiresAt?: Date): Promise<void> {
-      cache.set(userId, {
-        userId,
+    async block(endUserId: string, reason?: string, expiresAt?: Date): Promise<void> {
+      cache.set(endUserId, {
+        endUserId,
         reason,
         blockedAt: new Date(),
         expiresAt,
       });
     },
 
-    async unblock(userId: string): Promise<boolean> {
-      return cache.delete(userId);
+    async unblock(endUserId: string): Promise<boolean> {
+      return cache.delete(endUserId);
     },
 
     async getAll(): Promise<BlockEntry[]> {
@@ -148,7 +150,7 @@ export function createInMemoryBlocklist(): Blocklist {
       const entries: BlockEntry[] = [];
       for (const [, entry] of cache.entries()) {
         if (entry.expiresAt && entry.expiresAt < now) {
-          cache.delete(entry.userId);
+          cache.delete(entry.endUserId);
           continue;
         }
         entries.push(entry);
@@ -282,6 +284,38 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
     ): Promise<{ logs: StoredRequestLog[]; total: number }> {
       const filtered = logs
         .filter((l) => l.orgId === orgId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return {
+        logs: filtered.slice(opts.offset, opts.offset + opts.limit),
+        total: filtered.length,
+      };
+    },
+
+    async listEndUsersByOrgId(orgId: string): Promise<OrgLogEndUser[]> {
+      const seen = new Set<string>();
+      const endUsers: OrgLogEndUser[] = [];
+      const byOrg = logs
+        .filter((l) => l.orgId === orgId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      for (const log of byOrg) {
+        if (seen.has(log.endUserId)) continue;
+        seen.add(log.endUserId);
+        endUsers.push({
+          endUserId: log.endUserId,
+          endUserEmail: log.endUserEmail,
+          endUserName: log.endUserName,
+        });
+      }
+      return endUsers;
+    },
+
+    async listByOrgIdAndEndUserId(
+      orgId: string,
+      endUserId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const filtered = logs
+        .filter((l) => l.orgId === orgId && l.endUserId === endUserId)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       return {
         logs: filtered.slice(opts.offset, opts.offset + opts.limit),

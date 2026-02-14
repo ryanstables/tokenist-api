@@ -1,11 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog } from '../storage/interfaces';
+import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { createAuthMiddleware, createApiKeyMiddleware } from './middleware';
+import { getPeriodKey, getRolling24hPeriodKeys } from '../storage/period';
+import { calculateCost } from '../usage/pricing';
 
 type Env = {
   Variables: {
@@ -48,6 +51,10 @@ const sdkLogSchema = z.object({
   response: z.record(z.unknown()).optional(),
   status: z.string().optional(),
   latencyMs: z.number().nonnegative().optional(),
+  conversationId: z.string().min(1).optional(),
+  userId: z.string().min(1).optional(),
+  userEmail: z.string().optional(),
+  userName: z.string().optional(),
 });
 
 const sdkRecordSchema = z.object({
@@ -186,13 +193,13 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
   // Health check
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
-  // Get user usage
+  // Get end user usage
   app.get('/admin/users/:userId/usage', async (c) => {
-    const userId = c.req.param('userId');
+    const endUserId = c.req.param('userId');
 
-    const usage = await usageStore.getUsage(userId);
-    const threshold = await usageStore.getThreshold(userId);
-    const blockEntry = await blocklist.getBlockEntry(userId);
+    const usage = await usageStore.getUsage(endUserId);
+    const threshold = await usageStore.getThreshold(endUserId);
+    const blockEntry = await blocklist.getBlockEntry(endUserId);
 
     const usagePayload = usage
       ? {
@@ -208,7 +215,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         };
 
     return c.json({
-      userId,
+      userId: endUserId,
       usage: usagePayload,
       threshold,
       blocked: !!blockEntry,
@@ -216,16 +223,16 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
     });
   });
 
-  // List all users with usage
+  // List all end users with usage
   app.get('/admin/users', async (c) => {
-    const allUsers = await usageStore.getAllUsers();
+    const allEndUsers = await usageStore.getAllEndUsers();
 
     const users = await Promise.all(
-      Array.from(allUsers.entries()).map(async ([userId, usage]) => {
-        const blockEntry = await blocklist.getBlockEntry(userId);
-        const threshold = await usageStore.getThreshold(userId);
+      Array.from(allEndUsers.entries()).map(async ([endUserId, usage]) => {
+        const blockEntry = await blocklist.getBlockEntry(endUserId);
+        const threshold = await usageStore.getThreshold(endUserId);
         return {
-          userId,
+          userId: endUserId,
           usage,
           threshold,
           blocked: !!blockEntry,
@@ -236,32 +243,102 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
     return c.json({ users });
   });
 
-  // Organization summary for dashboard
-  if (userStore) {
+  // Organization summary for dashboard: end users (API consumers) and their usage, not dashboard users.
+  if (userStore || requestLogStore) {
     app.get('/admin/orgs/:orgId/summary', async (c) => {
       const orgId = c.req.param('orgId');
-      const period = c.req.query('period') ?? 'monthly';
-      const userIdsParam = c.req.query('userIds');
+      const period = (c.req.query('period') ?? 'monthly') as 'daily' | 'monthly' | 'rolling_24h';
+      const userIdsParam = c.req.query('userIds'); // optional filter: end user ids
       const feature = c.req.query('feature') ?? null;
-      const scopedUserIds = new Set(
+      const scopedEndUserIds = new Set(
         (userIdsParam ?? '')
           .split(',')
           .map((id) => id.trim())
           .filter((id) => id.length > 0)
       );
 
-      const orgUsers = await userStore.listByOrg(orgId);
-      const usersInScope =
-        scopedUserIds.size > 0
-          ? orgUsers.filter((user) => scopedUserIds.has(user.userId))
-          : orgUsers;
+      const orgEndUsers = requestLogStore
+        ? await requestLogStore.listEndUsersByOrgId(orgId)
+        : [];
+      const endUsersInScope =
+        scopedEndUserIds.size > 0
+          ? orgEndUsers.filter((u) => scopedEndUserIds.has(u.endUserId))
+          : orgEndUsers;
+
+      const now = new Date();
+      const periodKeys =
+        period === 'rolling_24h'
+          ? getRolling24hPeriodKeys(now)
+          : [getPeriodKey(period, now)];
 
       const users = await Promise.all(
-        usersInScope.map(async (user) => {
-          const usage = await usageStore.getUsage(user.userId);
+        endUsersInScope.map(async (endUser) => {
+          const endUserId = endUser.endUserId;
+          let usage: EndUserUsage | undefined;
+          if (periodKeys.length === 1) {
+            usage = await usageStore.getUsage(endUserId, periodKeys[0]);
+          } else {
+            let inputTokens = 0;
+            let outputTokens = 0;
+            let totalTokens = 0;
+            let costUsd = 0;
+            let lastUpdated: Date | null = null;
+            for (const key of periodKeys) {
+              const u = await usageStore.getUsage(endUserId, key);
+              if (u) {
+                inputTokens += u.inputTokens;
+                outputTokens += u.outputTokens;
+                totalTokens += u.totalTokens;
+                costUsd += u.costUsd;
+                if (u.lastUpdated && (!lastUpdated || u.lastUpdated > lastUpdated))
+                  lastUpdated = u.lastUpdated;
+              }
+            }
+            usage =
+              lastUpdated !== null
+                ? {
+                    inputTokens,
+                    outputTokens,
+                    totalTokens,
+                    costUsd,
+                    lastUpdated,
+                  }
+                : undefined;
+          }
+          // Fallback to 'default' period key when SDK/log or SDK/record wrote usage there (no period-specific key)
+          if (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.totalTokens === 0)) {
+            const defaultUsage = await usageStore.getUsage(endUserId, 'default');
+            if (defaultUsage) usage = defaultUsage;
+          }
+          // Fallback: aggregate from request_logs when usage store has no data (e.g. logs created before we recorded usage)
+          if ((!usage || (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.totalTokens === 0)) && requestLogStore) {
+            const { logs: userLogs } = await requestLogStore.listByOrgIdAndEndUserId(orgId, endUserId, {
+              limit: 2000,
+              offset: 0,
+            });
+            let inputTokens = 0;
+            let outputTokens = 0;
+            let costUsd = 0;
+            for (const log of userLogs) {
+              const inT = log.promptTokens ?? 0;
+              const outT = log.completionTokens ?? 0;
+              inputTokens += inT;
+              outputTokens += outT;
+              costUsd += calculateCost(log.model, inT, outT);
+            }
+            if (inputTokens > 0 || outputTokens > 0) {
+              usage = {
+                inputTokens,
+                outputTokens,
+                totalTokens: inputTokens + outputTokens,
+                costUsd,
+                lastUpdated: new Date(),
+              };
+            }
+          }
           return {
-            userId: user.userId,
-            displayName: user.displayName,
+            userId: endUserId,
+            displayName: endUser.endUserName ?? endUser.endUserEmail ?? endUserId,
             usage: {
               inputTokens: usage?.inputTokens ?? 0,
               outputTokens: usage?.outputTokens ?? 0,
@@ -286,15 +363,42 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       });
     });
 
+    // List end users (tracked users that appear in logs). Dashboard uses this for the Users page.
     app.get('/admin/orgs/:orgId/users', async (c) => {
       const orgId = c.req.param('orgId');
-      const users = await userStore.listByOrg(orgId);
-      return c.json(
-        users.map((user) => ({
-          id: user.userId,
-          displayName: user.displayName,
-        }))
-      );
+      if (requestLogStore) {
+        const fromLogs = await requestLogStore.listEndUsersByOrgId(orgId);
+        return c.json(
+          fromLogs.map((u) => ({
+            id: u.endUserId,
+            displayName: u.endUserName ?? u.endUserEmail ?? u.endUserId,
+            email: u.endUserEmail ?? null,
+          }))
+        );
+      }
+      // No request log store: return empty (no end users to show)
+      return c.json([]);
+    });
+
+    // List blocked end users that belong to this org (appear in org's logs).
+    app.get('/admin/orgs/:orgId/blocked', async (c) => {
+      const orgId = c.req.param('orgId');
+      const allBlocked = await blocklist.getAll();
+      if (!requestLogStore) {
+        return c.json({ blocked: [], count: 0 });
+      }
+      const orgEndUsers = await requestLogStore.listEndUsersByOrgId(orgId);
+      const orgEndUserIds = new Set(orgEndUsers.map((u) => u.endUserId));
+      const blockedInOrg = allBlocked.filter((e) => orgEndUserIds.has(e.endUserId));
+      return c.json({
+        blocked: blockedInOrg.map((e) => ({
+          userId: e.endUserId,
+          reason: e.reason,
+          blockedAt: e.blockedAt,
+          expiresAt: e.expiresAt,
+        })),
+        count: blockedInOrg.length,
+      });
     });
 
     app.get('/admin/orgs/:orgId/groups', (c) => c.json([]));
@@ -500,28 +604,31 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
 
     // Request logs (dashboard endpoints)
     if (requestLogStore) {
+      // Helper: serialize a StoredRequestLog → external API shape (endUserId → userId etc.)
+      const serializeLog = (log: StoredRequestLog) => ({
+        id: log.id,
+        userId: log.endUserId,
+        orgId: log.orgId,
+        userEmail: log.endUserEmail,
+        userName: log.endUserName,
+        conversationId: log.conversationId,
+        model: log.model,
+        requestBody: log.requestBody,
+        responseBody: log.responseBody,
+        status: log.status,
+        promptTokens: log.promptTokens,
+        completionTokens: log.completionTokens,
+        totalTokens: log.totalTokens,
+        latencyMs: log.latencyMs,
+        createdAt: log.createdAt.toISOString(),
+      });
+
       app.get('/admin/orgs/:orgId/logs', async (c) => {
         const orgId = c.req.param('orgId');
         const limit = Number.parseInt(c.req.query('limit') ?? '25', 10);
         const offset = Number.parseInt(c.req.query('offset') ?? '0', 10);
         const { logs, total } = await requestLogStore.listByOrgId(orgId, { limit, offset });
-        return c.json({
-          logs: logs.map((log) => ({
-            id: log.id,
-            userId: log.userId,
-            orgId: log.orgId,
-            model: log.model,
-            requestBody: log.requestBody,
-            responseBody: log.responseBody,
-            status: log.status,
-            promptTokens: log.promptTokens,
-            completionTokens: log.completionTokens,
-            totalTokens: log.totalTokens,
-            latencyMs: log.latencyMs,
-            createdAt: log.createdAt.toISOString(),
-          })),
-          total,
-        });
+        return c.json({ logs: logs.map(serializeLog), total });
       });
 
       app.get('/admin/orgs/:orgId/logs/:logId', async (c) => {
@@ -530,27 +637,26 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         if (!log) {
           return c.json({ error: 'Log not found' }, 404);
         }
-        return c.json({
-          id: log.id,
-          userId: log.userId,
-          orgId: log.orgId,
-          model: log.model,
-          requestBody: log.requestBody,
-          responseBody: log.responseBody,
-          status: log.status,
-          promptTokens: log.promptTokens,
-          completionTokens: log.completionTokens,
-          totalTokens: log.totalTokens,
-          latencyMs: log.latencyMs,
-          createdAt: log.createdAt.toISOString(),
+        return c.json(serializeLog(log));
+      });
+
+      app.get('/admin/orgs/:orgId/users/:userId/logs', async (c) => {
+        const orgId = c.req.param('orgId');
+        const endUserId = c.req.param('userId');
+        const limit = Number.parseInt(c.req.query('limit') ?? '10', 10);
+        const offset = Number.parseInt(c.req.query('offset') ?? '0', 10);
+        const { logs, total } = await requestLogStore.listByOrgIdAndEndUserId(orgId, endUserId, {
+          limit,
+          offset,
         });
+        return c.json({ logs: logs.map(serializeLog), total });
       });
     }
   }
 
-  // Block user
+  // Block end user
   app.post('/admin/users/:userId/block', async (c) => {
-    const userId = c.req.param('userId');
+    const endUserId = c.req.param('userId');
     const body = await c.req.json().catch(() => ({}));
 
     const result = blockRequestSchema.safeParse(body);
@@ -559,32 +665,32 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
     }
 
     const { reason, expiresAt } = result.data;
-    await blocklist.block(userId, reason, expiresAt ? new Date(expiresAt) : undefined);
+    await blocklist.block(endUserId, reason, expiresAt ? new Date(expiresAt) : undefined);
 
-    logger.info({ userId, reason, expiresAt }, 'User blocked');
+    logger.info({ endUserId, reason, expiresAt }, 'End user blocked');
 
     return c.json({
       success: true,
-      userId,
+      userId: endUserId,
       blocked: true,
       reason,
       expiresAt,
     });
   });
 
-  // Unblock user
+  // Unblock end user
   app.post('/admin/users/:userId/unblock', async (c) => {
-    const userId = c.req.param('userId');
-    const wasBlocked = await blocklist.unblock(userId);
+    const endUserId = c.req.param('userId');
+    const wasBlocked = await blocklist.unblock(endUserId);
 
-    logger.info({ userId, wasBlocked }, 'User unblocked');
+    logger.info({ endUserId, wasBlocked }, 'End user unblocked');
 
-    return c.json({ success: true, userId, wasBlocked });
+    return c.json({ success: true, userId: endUserId, wasBlocked });
   });
 
-  // Set user threshold
+  // Set end user threshold
   app.post('/admin/users/:userId/threshold', async (c) => {
-    const userId = c.req.param('userId');
+    const endUserId = c.req.param('userId');
     const body = await c.req.json().catch(() => ({}));
 
     const result = thresholdRequestSchema.safeParse(body);
@@ -592,16 +698,23 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       return c.json({ error: result.error.issues }, 400);
     }
 
-    await usageStore.setThreshold(userId, result.data);
-    logger.info({ userId, threshold: result.data }, 'Threshold updated');
+    await usageStore.setThreshold(endUserId, result.data);
+    logger.info({ endUserId, threshold: result.data }, 'End user threshold updated');
 
-    return c.json({ success: true, userId, threshold: result.data });
+    return c.json({ success: true, userId: endUserId, threshold: result.data });
   });
 
-  // List blocked users
+  // List blocked end users
   app.get('/admin/blocked', async (c) => {
     const entries = await blocklist.getAll();
-    return c.json({ blocked: entries });
+    return c.json({
+      blocked: entries.map((e) => ({
+        userId: e.endUserId,
+        reason: e.reason,
+        blockedAt: e.blockedAt,
+        expiresAt: e.expiresAt,
+      })),
+    });
   });
 
   // ============================================================
@@ -785,7 +898,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
   if (apiKeyStore) {
     const apiKeyMw = createApiKeyMiddleware(apiKeyStore);
 
-    // Check if a user is allowed to make a request
+    // Check if an end user is allowed to make a request
     app.post('/sdk/check', apiKeyMw, async (c) => {
       const body = await c.req.json().catch(() => ({}));
       const result = sdkCheckSchema.safeParse(body);
@@ -793,11 +906,11 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         return c.json({ error: result.error.issues }, 400);
       }
 
-      const { userId } = result.data;
+      const endUserId = result.data.userId;
 
-      const blockEntry = await blocklist.getBlockEntry(userId);
+      const blockEntry = await blocklist.getBlockEntry(endUserId);
       if (blockEntry) {
-        const usage = await usageStore.getUsage(userId);
+        const usage = await usageStore.getUsage(endUserId);
         return c.json({
           allowed: false,
           reason: `User is blocked: ${blockEntry.reason || 'No reason provided'}`,
@@ -807,8 +920,8 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         });
       }
 
-      const usage = await usageStore.getUsage(userId);
-      const threshold = await usageStore.getThreshold(userId);
+      const usage = await usageStore.getUsage(endUserId);
+      const threshold = await usageStore.getThreshold(endUserId);
       const currentTokens = usage?.totalTokens ?? 0;
       const currentCost = usage?.costUsd ?? 0;
 
@@ -859,10 +972,11 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         return c.json({ error: result.error.issues }, 400);
       }
 
-      const { userId, model, inputTokens, outputTokens } = result.data;
-      const usage = await usageStore.updateUsage(userId, model, inputTokens, outputTokens);
+      const { model, inputTokens, outputTokens } = result.data;
+      const endUserId = result.data.userId;
+      const usage = await usageStore.updateUsage(endUserId, model, inputTokens, outputTokens);
 
-      const threshold = await usageStore.getThreshold(userId);
+      const threshold = await usageStore.getThreshold(endUserId);
       let blocked = false;
       if (threshold.maxCostUsd !== undefined && usage.costUsd >= threshold.maxCostUsd) {
         blocked = true;
@@ -875,7 +989,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         blocked = true;
       }
 
-      logger.info({ userId, inputTokens, outputTokens, blocked }, 'SDK usage recorded');
+      logger.info({ endUserId, inputTokens, outputTokens, blocked }, 'SDK usage recorded');
 
       return c.json({
         recorded: true,
@@ -893,11 +1007,31 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           return c.json({ error: result.error.issues }, 400);
         }
 
-        const userId = c.get('apiKeyUserId');
-        const user = await userStore.findByUserId(userId);
+        const platformUserId = c.get('apiKeyUserId');
+        const user = await userStore.findByUserId(platformUserId);
         const orgId = user?.orgId ?? null;
 
-        const { model, request: reqBody, response: resBody, status, latencyMs } = result.data;
+        const {
+          model,
+          request: reqBody,
+          response: resBody,
+          status,
+          latencyMs,
+          conversationId: clientConversationId,
+          userId: clientUserId,
+          userEmail: clientEmail,
+          userName: clientName,
+        } = result.data;
+
+        // End user id: client-supplied (per end user) or fall back to API key owner
+        const endUserId = clientUserId ?? platformUserId;
+
+        // Use client-supplied conversationId or generate one
+        const conversationId = clientConversationId || crypto.randomUUID();
+
+        // Resolve end user email and name: prefer explicit values, fall back to platform user record
+        const endUserEmail = clientEmail || user?.email || null;
+        const endUserName = clientName || user?.displayName || null;
 
         // Extract token counts from response.usage if present
         const usage = resBody?.usage as
@@ -910,8 +1044,11 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const id = crypto.randomUUID();
         const log = await requestLogStore.create({
           id,
-          userId,
+          endUserId,
           orgId,
+          endUserEmail,
+          endUserName,
+          conversationId,
           model,
           requestBody: JSON.stringify(reqBody),
           responseBody: resBody ? JSON.stringify(resBody) : null,
@@ -923,9 +1060,16 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           createdAt: new Date(),
         });
 
-        logger.info({ logId: log.id, userId, model }, 'Request logged');
+        // Record usage so dashboard summary and charts show tokens/cost (stored under 'default' period key)
+        const inputTokens = promptTokens ?? 0;
+        const outputTokens = completionTokens ?? 0;
+        if (inputTokens > 0 || outputTokens > 0) {
+          await usageStore.updateUsage(endUserId, model, inputTokens, outputTokens, 'default');
+        }
 
-        return c.json({ id: log.id, recorded: true }, 201);
+        logger.info({ logId: log.id, endUserId, conversationId, model }, 'Request logged');
+
+        return c.json({ id: log.id, conversationId, recorded: true }, 201);
       });
     }
   }

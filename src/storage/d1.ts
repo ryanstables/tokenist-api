@@ -1,4 +1,4 @@
-import type { UserUsage, UserThreshold } from '../types/user';
+import type { EndUserUsage, EndUserThreshold } from '../types/user';
 import type {
   UsageStore,
   Blocklist,
@@ -9,6 +9,7 @@ import type {
   StoredApiKey,
   RequestLogStore,
   StoredRequestLog,
+  OrgLogEndUser,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
@@ -19,10 +20,10 @@ export interface D1StoreOptions {
 
 export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {}): UsageStore {
   return {
-    async getUsage(userId: string, periodKey = 'default'): Promise<UserUsage | undefined> {
+    async getUsage(endUserId: string, periodKey = 'default'): Promise<EndUserUsage | undefined> {
       const row = await db
-        .prepare('SELECT * FROM usage WHERE user_id = ? AND period_key = ?')
-        .bind(userId, periodKey)
+        .prepare('SELECT * FROM usage WHERE end_user_id = ? AND period_key = ?')
+        .bind(endUserId, periodKey)
         .first<{
           input_tokens: number;
           output_tokens: number;
@@ -43,15 +44,15 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
     },
 
     async updateUsage(
-      userId: string,
+      endUserId: string,
       model: string,
       inputTokens: number,
       outputTokens: number,
       periodKey = 'default'
-    ): Promise<UserUsage> {
+    ): Promise<EndUserUsage> {
       const existing = await db
-        .prepare('SELECT * FROM usage WHERE user_id = ? AND period_key = ?')
-        .bind(userId, periodKey)
+        .prepare('SELECT * FROM usage WHERE end_user_id = ? AND period_key = ?')
+        .bind(endUserId, periodKey)
         .first<{
           input_tokens: number;
           output_tokens: number;
@@ -65,16 +66,16 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
 
       await db
         .prepare(
-          `INSERT INTO usage (user_id, period_key, input_tokens, output_tokens, total_tokens, cost_usd, last_updated)
+          `INSERT INTO usage (end_user_id, period_key, input_tokens, output_tokens, total_tokens, cost_usd, last_updated)
            VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (user_id, period_key) DO UPDATE SET
+           ON CONFLICT (end_user_id, period_key) DO UPDATE SET
              input_tokens = excluded.input_tokens,
              output_tokens = excluded.output_tokens,
              total_tokens = excluded.total_tokens,
              cost_usd = excluded.cost_usd,
              last_updated = excluded.last_updated`
         )
-        .bind(userId, periodKey, newInput, newOutput, newTotal, newCost, now)
+        .bind(endUserId, periodKey, newInput, newOutput, newTotal, newCost, now)
         .run();
 
       return {
@@ -86,10 +87,10 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
       };
     },
 
-    async getThreshold(userId: string): Promise<UserThreshold> {
+    async getThreshold(endUserId: string): Promise<EndUserThreshold> {
       const row = await db
-        .prepare('SELECT * FROM thresholds WHERE user_id = ?')
-        .bind(userId)
+        .prepare('SELECT * FROM thresholds WHERE end_user_id = ?')
+        .bind(endUserId)
         .first<{ max_cost_usd: number | null; max_total_tokens: number | null }>();
 
       if (row) {
@@ -111,25 +112,25 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
       };
     },
 
-    async setThreshold(userId: string, threshold: UserThreshold): Promise<void> {
+    async setThreshold(endUserId: string, threshold: EndUserThreshold): Promise<void> {
       await db
         .prepare(
-          `INSERT INTO thresholds (user_id, max_cost_usd, max_total_tokens)
+          `INSERT INTO thresholds (end_user_id, max_cost_usd, max_total_tokens)
            VALUES (?, ?, ?)
-           ON CONFLICT (user_id) DO UPDATE SET
+           ON CONFLICT (end_user_id) DO UPDATE SET
              max_cost_usd = excluded.max_cost_usd,
              max_total_tokens = excluded.max_total_tokens`
         )
-        .bind(userId, threshold.maxCostUsd ?? null, threshold.maxTotalTokens ?? null)
+        .bind(endUserId, threshold.maxCostUsd ?? null, threshold.maxTotalTokens ?? null)
         .run();
     },
 
-    async getAllUsers(): Promise<Map<string, UserUsage>> {
+    async getAllEndUsers(): Promise<Map<string, EndUserUsage>> {
       const { results } = await db
         .prepare('SELECT * FROM usage WHERE period_key = ?')
         .bind('default')
         .all<{
-          user_id: string;
+          end_user_id: string;
           input_tokens: number;
           output_tokens: number;
           total_tokens: number;
@@ -137,9 +138,9 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
           last_updated: string;
         }>();
 
-      const map = new Map<string, UserUsage>();
+      const map = new Map<string, EndUserUsage>();
       for (const row of results) {
-        map.set(row.user_id, {
+        map.set(row.end_user_id, {
           inputTokens: row.input_tokens,
           outputTokens: row.output_tokens,
           totalTokens: row.total_tokens,
@@ -154,17 +155,17 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
 
 export function createD1Blocklist(db: D1Database): Blocklist {
   return {
-    async isBlocked(userId: string): Promise<boolean> {
-      const entry = await this.getBlockEntry(userId);
+    async isBlocked(endUserId: string): Promise<boolean> {
+      const entry = await this.getBlockEntry(endUserId);
       return !!entry;
     },
 
-    async getBlockEntry(userId: string): Promise<BlockEntry | undefined> {
+    async getBlockEntry(endUserId: string): Promise<BlockEntry | undefined> {
       const row = await db
-        .prepare('SELECT * FROM blocklist WHERE user_id = ?')
-        .bind(userId)
+        .prepare('SELECT * FROM blocklist WHERE end_user_id = ?')
+        .bind(endUserId)
         .first<{
-          user_id: string;
+          end_user_id: string;
           reason: string | null;
           blocked_at: string;
           expires_at: string | null;
@@ -173,30 +174,30 @@ export function createD1Blocklist(db: D1Database): Blocklist {
       if (!row) return undefined;
 
       if (row.expires_at && new Date(row.expires_at) < new Date()) {
-        await db.prepare('DELETE FROM blocklist WHERE user_id = ?').bind(userId).run();
+        await db.prepare('DELETE FROM blocklist WHERE end_user_id = ?').bind(endUserId).run();
         return undefined;
       }
 
       return {
-        userId: row.user_id,
+        endUserId: row.end_user_id,
         reason: row.reason ?? undefined,
         blockedAt: new Date(row.blocked_at),
         expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
       };
     },
 
-    async block(userId: string, reason?: string, expiresAt?: Date): Promise<void> {
+    async block(endUserId: string, reason?: string, expiresAt?: Date): Promise<void> {
       await db
         .prepare(
-          `INSERT INTO blocklist (user_id, reason, blocked_at, expires_at)
+          `INSERT INTO blocklist (end_user_id, reason, blocked_at, expires_at)
            VALUES (?, ?, ?, ?)
-           ON CONFLICT (user_id) DO UPDATE SET
+           ON CONFLICT (end_user_id) DO UPDATE SET
              reason = excluded.reason,
              blocked_at = excluded.blocked_at,
              expires_at = excluded.expires_at`
         )
         .bind(
-          userId,
+          endUserId,
           reason ?? null,
           new Date().toISOString(),
           expiresAt ? expiresAt.toISOString() : null
@@ -204,10 +205,10 @@ export function createD1Blocklist(db: D1Database): Blocklist {
         .run();
     },
 
-    async unblock(userId: string): Promise<boolean> {
+    async unblock(endUserId: string): Promise<boolean> {
       const result = await db
-        .prepare('DELETE FROM blocklist WHERE user_id = ?')
-        .bind(userId)
+        .prepare('DELETE FROM blocklist WHERE end_user_id = ?')
+        .bind(endUserId)
         .run();
       return (result.meta?.changes ?? 0) > 0;
     },
@@ -217,7 +218,7 @@ export function createD1Blocklist(db: D1Database): Blocklist {
       const { results } = await db
         .prepare('SELECT * FROM blocklist')
         .all<{
-          user_id: string;
+          end_user_id: string;
           reason: string | null;
           blocked_at: string;
           expires_at: string | null;
@@ -226,11 +227,11 @@ export function createD1Blocklist(db: D1Database): Blocklist {
       const entries: BlockEntry[] = [];
       for (const row of results) {
         if (row.expires_at && new Date(row.expires_at) < now) {
-          await db.prepare('DELETE FROM blocklist WHERE user_id = ?').bind(row.user_id).run();
+          await db.prepare('DELETE FROM blocklist WHERE end_user_id = ?').bind(row.end_user_id).run();
           continue;
         }
         entries.push({
-          userId: row.user_id,
+          endUserId: row.end_user_id,
           reason: row.reason ?? undefined,
           blockedAt: new Date(row.blocked_at),
           expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
@@ -457,8 +458,11 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
 export function createD1RequestLogStore(db: D1Database): RequestLogStore {
   type LogRow = {
     id: string;
-    user_id: string;
+    end_user_id: string;
     org_id: string | null;
+    end_user_email: string | null;
+    end_user_name: string | null;
+    conversation_id: string;
     model: string;
     request_body: string;
     response_body: string | null;
@@ -473,8 +477,11 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
   function rowToLog(row: LogRow): StoredRequestLog {
     return {
       id: row.id,
-      userId: row.user_id,
+      endUserId: row.end_user_id,
       orgId: row.org_id,
+      endUserEmail: row.end_user_email,
+      endUserName: row.end_user_name,
+      conversationId: row.conversation_id,
       model: row.model,
       requestBody: row.request_body,
       responseBody: row.response_body,
@@ -491,13 +498,16 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     async create(log: StoredRequestLog): Promise<StoredRequestLog> {
       await db
         .prepare(
-          `INSERT INTO request_logs (id, user_id, org_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO request_logs (id, end_user_id, org_id, end_user_email, end_user_name, conversation_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           log.id,
-          log.userId,
+          log.endUserId,
           log.orgId ?? null,
+          log.endUserEmail ?? null,
+          log.endUserName ?? null,
+          log.conversationId,
           log.model,
           log.requestBody,
           log.responseBody ?? null,
@@ -527,6 +537,48 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
           'SELECT * FROM request_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
         )
         .bind(orgId, opts.limit, opts.offset)
+        .all<LogRow>();
+
+      return { logs: results.map(rowToLog), total };
+    },
+
+    async listEndUsersByOrgId(orgId: string): Promise<OrgLogEndUser[]> {
+      const { results } = await db
+        .prepare(
+          'SELECT end_user_id, end_user_email, end_user_name FROM request_logs WHERE org_id = ? ORDER BY created_at DESC'
+        )
+        .bind(orgId)
+        .all<{ end_user_id: string; end_user_email: string | null; end_user_name: string | null }>();
+      const seen = new Set<string>();
+      const endUsers: OrgLogEndUser[] = [];
+      for (const row of results) {
+        if (seen.has(row.end_user_id)) continue;
+        seen.add(row.end_user_id);
+        endUsers.push({
+          endUserId: row.end_user_id,
+          endUserEmail: row.end_user_email,
+          endUserName: row.end_user_name,
+        });
+      }
+      return endUsers;
+    },
+
+    async listByOrgIdAndEndUserId(
+      orgId: string,
+      endUserId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const countRow = await db
+        .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ? AND end_user_id = ?')
+        .bind(orgId, endUserId)
+        .first<{ cnt: number }>();
+      const total = countRow?.cnt ?? 0;
+
+      const { results } = await db
+        .prepare(
+          'SELECT * FROM request_logs WHERE org_id = ? AND end_user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        )
+        .bind(orgId, endUserId, opts.limit, opts.offset)
         .all<LogRow>();
 
       return { logs: results.map(rowToLog), total };

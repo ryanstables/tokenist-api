@@ -6,12 +6,22 @@
  *
  * Usage:
  *   TOKENIST_API_KEY=ug_... npx tsx examples/log-with-fetch.ts
+ *   npx tsx examples/log-with-fetch.ts --user=user_alice
+ *
+ * Pass a unique userId (or TOKENIST_END_USER_ID) per end user so they appear as separate
+ * users in the dashboard. If omitted, the API key owner's id is used for all logs.
  */
 
-const TOKENIST_URL = "http://localhost:8081";
-const TOKENIST_API_KEY = "ug_97ef73fb15a0088f284f67eaf7c41c7888bd61931b4423cc2e49e600468c378b";
+const TOKENIST_URL = process.env.TOKENIST_URL ?? "http://localhost:8081";
+const TOKENIST_API_KEY = 'ug_bf177c5911682623bf2d85c0c72032fb53b6a1e0d31545aff5af4c9672139542';
+
 
 async function main() {
+  // if (!TOKENIST_API_KEY) {
+  //   console.error("Set TOKENIST_API_KEY (e.g. ug_...)");
+  //   process.exit(1);
+  // }
+
   // These would come from your actual OpenAI call
   const request = {
     model: "gpt-4o",
@@ -37,8 +47,20 @@ async function main() {
     usage: {
       prompt_tokens: 25,
       completion_tokens: 8,
-      total_tokens: 33,
+      total_tokens: 313,
     },
+  };
+
+  const body: Record<string, unknown> = {
+    model: request.model,
+    request,
+    response,
+    latencyMs: 342,
+    status: "success",
+    userId: "12345asdasd67890123",
+    userEmail: "ryanstables@gmail.com",
+    userName: "Ryan Stable",
+    conversationId: "conv_asdasdabc123wawea", // omit to auto-generate
   };
 
   const res = await fetch(`${TOKENIST_URL}/sdk/log`, {
@@ -47,20 +69,14 @@ async function main() {
       Authorization: `Bearer ${TOKENIST_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: request.model,
-      request,
-      response,
-      latencyMs: 342,
-      status: "success",
-    }),
+    body: JSON.stringify(body),
   });
 
   console.log("Status:", res.status);
   console.log("Body:", await res.json());
-  // → { id: "...", recorded: true }
+  // → { id: "...", conversationId: "conv_abc123", recorded: true }
   //
-  // Now open http://localhost:3001/logs to see this entry in the dashboard.
+  // Now open http://localhost:3001/users to see end users and their logs.
 }
 
 main();
