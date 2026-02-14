@@ -23,7 +23,12 @@ async function logToTokenist(
   request: Record<string, unknown>,
   response: Record<string, unknown>,
   latencyMs: number,
-  status: string = "success"
+  opts: {
+    status?: string;
+    conversationId?: string;
+    userEmail?: string;
+    userName?: string;
+  } = {}
 ) {
   const res = await fetch(`${TOKENIST_URL}/sdk/log`, {
     method: "POST",
@@ -31,7 +36,16 @@ async function logToTokenist(
       Authorization: `Bearer ${TOKENIST_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model, request, response, latencyMs, status }),
+    body: JSON.stringify({
+      model,
+      request,
+      response,
+      latencyMs,
+      status: opts.status ?? "success",
+      conversationId: opts.conversationId,
+      userEmail: opts.userEmail,
+      userName: opts.userName,
+    }),
   });
   return res.json();
 }
@@ -84,14 +98,23 @@ async function main() {
     usage,
   };
 
+  // Pass a conversationId to group related requests together
+  const conversationId = `conv_stream_${Date.now()}`;
+
   const result = await logToTokenist(
     request.model,
     request,
     syntheticResponse,
-    latencyMs
+    latencyMs,
+    {
+      conversationId,
+      userEmail: "alice@example.com",
+      userName: "Alice Smith",
+    }
   );
 
   console.log("Logged to Tokenist:", result);
+  // → { id: "...", conversationId: "conv_stream_...", recorded: true }
   if (usage) {
     console.log(
       `Tokens — prompt: ${usage.prompt_tokens}, completion: ${usage.completion_tokens}, total: ${usage.total_tokens}`

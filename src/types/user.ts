@@ -4,6 +4,8 @@ export type UsageWindow = 'daily' | 'monthly' | 'rolling_24h';
 export interface UserIdentity {
   userId: string;
   orgId?: string;
+  email?: string;
+  name?: string;
 }
 
 export interface UserUsage {
@@ -23,6 +25,9 @@ export interface ConnectionContext {
   connectionId: string;
   userId: string;
   orgId?: string;
+  email?: string;
+  name?: string;
+  conversationId: string;
   model: string;
   connectedAt: Date;
 }

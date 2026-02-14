@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS request_logs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   org_id TEXT,
+  user_email TEXT,
+  user_name TEXT,
+  conversation_id TEXT NOT NULL,
   model TEXT NOT NULL,
   request_body TEXT NOT NULL,
   response_body TEXT,
@@ -75,3 +78,4 @@ CREATE TABLE IF NOT EXISTS request_logs (
 CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_org_id ON request_logs(org_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_conversation_id ON request_logs(conversation_id);

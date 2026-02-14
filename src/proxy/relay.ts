@@ -10,6 +10,9 @@ export interface RelayContext {
   connectionId: string;
   userId: string;
   orgId?: string;
+  email?: string;
+  name?: string;
+  conversationId: string;
   model: string;
   periodKey?: string;
 }

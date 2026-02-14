@@ -459,6 +459,9 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     id: string;
     user_id: string;
     org_id: string | null;
+    user_email: string | null;
+    user_name: string | null;
+    conversation_id: string;
     model: string;
     request_body: string;
     response_body: string | null;
@@ -475,6 +478,9 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
       id: row.id,
       userId: row.user_id,
       orgId: row.org_id,
+      userEmail: row.user_email,
+      userName: row.user_name,
+      conversationId: row.conversation_id,
       model: row.model,
       requestBody: row.request_body,
       responseBody: row.response_body,
@@ -491,13 +497,16 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     async create(log: StoredRequestLog): Promise<StoredRequestLog> {
       await db
         .prepare(
-          `INSERT INTO request_logs (id, user_id, org_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO request_logs (id, user_id, org_id, user_email, user_name, conversation_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           log.id,
           log.userId,
           log.orgId ?? null,
+          log.userEmail ?? null,
+          log.userName ?? null,
+          log.conversationId,
           log.model,
           log.requestBody,
           log.responseBody ?? null,

@@ -53,12 +53,16 @@ async function main() {
       response,
       latencyMs: 342,
       status: "success",
+      // Pass user details and conversation ID for event tracking
+      userEmail: "alice@example.com",
+      userName: "Alice Smith",
+      conversationId: "conv_abc123", // omit to auto-generate
     }),
   });
 
   console.log("Status:", res.status);
   console.log("Body:", await res.json());
-  // → { id: "...", recorded: true }
+  // → { id: "...", conversationId: "conv_abc123", recorded: true }
   //
   // Now open http://localhost:3001/logs to see this entry in the dashboard.
 }

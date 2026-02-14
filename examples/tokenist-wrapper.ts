@@ -17,6 +17,15 @@ interface TokenistClientOptions {
   apiKey: string; // ug_... key
 }
 
+/** Context about the user making the request. */
+interface UserContext {
+  userId: string;
+  email?: string;
+  name?: string;
+  /** Optional conversation ID to group related requests. Auto-generated if omitted. */
+  conversationId?: string;
+}
+
 function createTokenistClient(opts: TokenistClientOptions) {
   const base = (opts.baseUrl ?? "http://localhost:8081").replace(/\/$/, "");
 
@@ -61,20 +70,24 @@ function createTokenistClient(opts: TokenistClientOptions) {
       });
     },
 
-    /** Log the full request/response payload */
+    /** Log the full request/response payload with user context */
     log(
       model: string,
       request: Record<string, unknown>,
       response: Record<string, unknown>,
       latencyMs: number,
+      user: UserContext,
       status = "success"
     ) {
-      return post<{ id: string; recorded: boolean }>("/sdk/log", {
+      return post<{ id: string; conversationId: string; recorded: boolean }>("/sdk/log", {
         model,
         request,
         response,
         latencyMs,
         status,
+        conversationId: user.conversationId,
+        userEmail: user.email,
+        userName: user.name,
       });
     },
   };
@@ -93,11 +106,11 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
  * that enforces Tokenist limits and logs the full exchange.
  */
 async function chatCompletion(
-  userId: string,
+  user: UserContext,
   params: OpenAI.ChatCompletionCreateParamsNonStreaming
 ) {
   // 1. Check limits before calling OpenAI
-  const check = await tokenist.check(userId, params.model);
+  const check = await tokenist.check(user.userId, params.model);
   if (!check.allowed) {
     throw new Error(`Blocked by Tokenist: ${check.reason}`);
   }
@@ -116,6 +129,7 @@ async function chatCompletion(
       params as unknown as Record<string, unknown>,
       { error: err instanceof Error ? err.message : String(err) },
       latencyMs,
+      user,
       status
     );
     throw err;
@@ -126,7 +140,7 @@ async function chatCompletion(
   const usage = completion.usage;
   if (usage) {
     tokenist.record(
-      userId,
+      user.userId,
       params.model,
       usage.prompt_tokens,
       usage.completion_tokens,
@@ -139,6 +153,7 @@ async function chatCompletion(
     params as unknown as Record<string, unknown>,
     completion as unknown as Record<string, unknown>,
     latencyMs,
+    user,
     status
   );
 
@@ -148,9 +163,14 @@ async function chatCompletion(
 // ── Demo ───────────────────────────────────────────────────────────
 
 async function main() {
-  const endUserId = "user_alice";
+  const user: UserContext = {
+    userId: "user_alice",
+    email: "alice@example.com",
+    name: "Alice Smith",
+    conversationId: "conv_demo_123", // omit to auto-generate
+  };
 
-  const result = await chatCompletion(endUserId, {
+  const result = await chatCompletion(user, {
     model: "gpt-4o-mini",
     messages: [
       { role: "user", content: "Explain WebSockets in one sentence." },

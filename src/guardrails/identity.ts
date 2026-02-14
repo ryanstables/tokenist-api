@@ -25,12 +25,16 @@ export function extractIdentity(request: Request): ExtractIdentityResult {
   }
 
   const orgId = request.headers.get('x-org-id');
+  const email = request.headers.get('x-user-email');
+  const name = request.headers.get('x-user-name');
 
   return {
     success: true,
     identity: {
       userId: userId.trim(),
       orgId: orgId ? orgId.trim() : undefined,
+      email: email ? email.trim() : undefined,
+      name: name ? name.trim() : undefined,
     },
   };
 }

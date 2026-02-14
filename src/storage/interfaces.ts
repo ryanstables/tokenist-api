@@ -68,6 +68,9 @@ export interface StoredRequestLog {
   id: string;
   userId: string;
   orgId?: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
+  conversationId: string;
   model: string;
   requestBody: string;
   responseBody?: string | null;

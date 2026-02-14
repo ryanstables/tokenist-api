@@ -23,7 +23,12 @@ async function logToTokenist(
   request: Record<string, unknown>,
   response: Record<string, unknown>,
   latencyMs: number,
-  status: string = "success"
+  opts: {
+    status?: string;
+    conversationId?: string;
+    userEmail?: string;
+    userName?: string;
+  } = {}
 ) {
   const res = await fetch(`${TOKENIST_URL}/sdk/log`, {
     method: "POST",
@@ -31,7 +36,16 @@ async function logToTokenist(
       Authorization: `Bearer ${TOKENIST_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model, request, response, latencyMs, status }),
+    body: JSON.stringify({
+      model,
+      request,
+      response,
+      latencyMs,
+      status: opts.status ?? "success",
+      conversationId: opts.conversationId,
+      userEmail: opts.userEmail,
+      userName: opts.userName,
+    }),
   });
 
   if (!res.ok) {
@@ -69,9 +83,15 @@ async function main() {
     request,
     response!,
     latencyMs,
-    status
+    {
+      status,
+      conversationId: "conv_geography_101",
+      userEmail: "alice@example.com",
+      userName: "Alice Smith",
+    }
   );
   console.log("Logged to Tokenist:", result);
+  // → { id: "...", conversationId: "conv_geography_101", recorded: true }
 }
 
 main();

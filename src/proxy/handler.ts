@@ -40,7 +40,11 @@ export async function handleWebSocketUpgrade(
       return new Response(identityResult.error, { status: identityResult.code });
     }
 
-    const { userId, orgId } = identityResult.identity;
+    const { userId, orgId, email, name } = identityResult.identity;
+
+    // Use client-supplied conversation ID or generate one
+    const conversationId =
+      request.headers.get('x-conversation-id')?.trim() || crypto.randomUUID();
 
     // Determine API key: client Bearer token or server-side key
     const authHeader = request.headers.get('authorization');
@@ -85,7 +89,7 @@ export async function handleWebSocketUpgrade(
         setupRelay(
           serverSocket,
           upstream,
-          { connectionId, userId, orgId, model },
+          { connectionId, userId, orgId, email, name, conversationId, model },
           usageStore,
           logger,
           relayHooks

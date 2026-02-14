@@ -48,6 +48,9 @@ const sdkLogSchema = z.object({
   response: z.record(z.unknown()).optional(),
   status: z.string().optional(),
   latencyMs: z.number().nonnegative().optional(),
+  conversationId: z.string().min(1).optional(),
+  userEmail: z.string().optional(),
+  userName: z.string().optional(),
 });
 
 const sdkRecordSchema = z.object({
@@ -510,6 +513,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
             id: log.id,
             userId: log.userId,
             orgId: log.orgId,
+            userEmail: log.userEmail,
+            userName: log.userName,
+            conversationId: log.conversationId,
             model: log.model,
             requestBody: log.requestBody,
             responseBody: log.responseBody,
@@ -534,6 +540,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           id: log.id,
           userId: log.userId,
           orgId: log.orgId,
+          userEmail: log.userEmail,
+          userName: log.userName,
+          conversationId: log.conversationId,
           model: log.model,
           requestBody: log.requestBody,
           responseBody: log.responseBody,
@@ -897,7 +906,23 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const user = await userStore.findByUserId(userId);
         const orgId = user?.orgId ?? null;
 
-        const { model, request: reqBody, response: resBody, status, latencyMs } = result.data;
+        const {
+          model,
+          request: reqBody,
+          response: resBody,
+          status,
+          latencyMs,
+          conversationId: clientConversationId,
+          userEmail: clientEmail,
+          userName: clientName,
+        } = result.data;
+
+        // Use client-supplied conversationId or generate one
+        const conversationId = clientConversationId || crypto.randomUUID();
+
+        // Resolve user email and name: prefer explicit values, fall back to stored user record
+        const userEmail = clientEmail || user?.email || null;
+        const userName = clientName || user?.displayName || null;
 
         // Extract token counts from response.usage if present
         const usage = resBody?.usage as
@@ -912,6 +937,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           id,
           userId,
           orgId,
+          userEmail,
+          userName,
+          conversationId,
           model,
           requestBody: JSON.stringify(reqBody),
           responseBody: resBody ? JSON.stringify(resBody) : null,
@@ -923,9 +951,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           createdAt: new Date(),
         });
 
-        logger.info({ logId: log.id, userId, model }, 'Request logged');
+        logger.info({ logId: log.id, userId, conversationId, model }, 'Request logged');
 
-        return c.json({ id: log.id, recorded: true }, 201);
+        return c.json({ id: log.id, conversationId, recorded: true }, 201);
       });
     }
   }
