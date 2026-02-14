@@ -9,6 +9,7 @@ import type {
   StoredApiKey,
   RequestLogStore,
   StoredRequestLog,
+  OrgLogUser,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
@@ -536,6 +537,48 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
           'SELECT * FROM request_logs WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
         )
         .bind(orgId, opts.limit, opts.offset)
+        .all<LogRow>();
+
+      return { logs: results.map(rowToLog), total };
+    },
+
+    async listUsersByOrgId(orgId: string): Promise<OrgLogUser[]> {
+      const { results } = await db
+        .prepare(
+          'SELECT user_id, user_email, user_name FROM request_logs WHERE org_id = ? ORDER BY created_at DESC'
+        )
+        .bind(orgId)
+        .all<{ user_id: string; user_email: string | null; user_name: string | null }>();
+      const seen = new Set<string>();
+      const users: OrgLogUser[] = [];
+      for (const row of results) {
+        if (seen.has(row.user_id)) continue;
+        seen.add(row.user_id);
+        users.push({
+          userId: row.user_id,
+          userEmail: row.user_email,
+          userName: row.user_name,
+        });
+      }
+      return users;
+    },
+
+    async listByOrgIdAndUserId(
+      orgId: string,
+      userId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const countRow = await db
+        .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ? AND user_id = ?')
+        .bind(orgId, userId)
+        .first<{ cnt: number }>();
+      const total = countRow?.cnt ?? 0;
+
+      const { results } = await db
+        .prepare(
+          'SELECT * FROM request_logs WHERE org_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+        )
+        .bind(orgId, userId, opts.limit, opts.offset)
         .all<LogRow>();
 
       return { logs: results.map(rowToLog), total };

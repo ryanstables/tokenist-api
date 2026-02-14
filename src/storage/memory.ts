@@ -9,6 +9,7 @@ import type {
   StoredApiKey,
   RequestLogStore,
   StoredRequestLog,
+  OrgLogUser,
 } from './interfaces';
 import { calculateCost } from '../usage/pricing';
 
@@ -282,6 +283,38 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
     ): Promise<{ logs: StoredRequestLog[]; total: number }> {
       const filtered = logs
         .filter((l) => l.orgId === orgId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return {
+        logs: filtered.slice(opts.offset, opts.offset + opts.limit),
+        total: filtered.length,
+      };
+    },
+
+    async listUsersByOrgId(orgId: string): Promise<OrgLogUser[]> {
+      const seen = new Set<string>();
+      const users: OrgLogUser[] = [];
+      const byOrg = logs
+        .filter((l) => l.orgId === orgId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      for (const log of byOrg) {
+        if (seen.has(log.userId)) continue;
+        seen.add(log.userId);
+        users.push({
+          userId: log.userId,
+          userEmail: log.userEmail,
+          userName: log.userName,
+        });
+      }
+      return users;
+    },
+
+    async listByOrgIdAndUserId(
+      orgId: string,
+      userId: string,
+      opts: { limit: number; offset: number }
+    ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const filtered = logs
+        .filter((l) => l.orgId === orgId && l.userId === userId)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       return {
         logs: filtered.slice(opts.offset, opts.offset + opts.limit),

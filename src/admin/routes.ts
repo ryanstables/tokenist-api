@@ -291,13 +291,30 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
 
     app.get('/admin/orgs/:orgId/users', async (c) => {
       const orgId = c.req.param('orgId');
-      const users = await userStore.listByOrg(orgId);
-      return c.json(
-        users.map((user) => ({
-          id: user.userId,
-          displayName: user.displayName,
-        }))
+      const registered = await userStore.listByOrg(orgId);
+      const byId = new Map(
+        registered.map((u) => [
+          u.userId,
+          {
+            id: u.userId,
+            displayName: u.displayName ?? u.email ?? u.userId,
+            email: u.email ?? null,
+          },
+        ])
       );
+      if (requestLogStore) {
+        const fromLogs = await requestLogStore.listUsersByOrgId(orgId);
+        for (const u of fromLogs) {
+          if (!byId.has(u.userId)) {
+            byId.set(u.userId, {
+              id: u.userId,
+              displayName: u.userName ?? u.userEmail ?? u.userId,
+              email: u.userEmail ?? null,
+            });
+          }
+        }
+      }
+      return c.json(Array.from(byId.values()));
     });
 
     app.get('/admin/orgs/:orgId/groups', (c) => c.json([]));
@@ -552,6 +569,37 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           totalTokens: log.totalTokens,
           latencyMs: log.latencyMs,
           createdAt: log.createdAt.toISOString(),
+        });
+      });
+
+      app.get('/admin/orgs/:orgId/users/:userId/logs', async (c) => {
+        const orgId = c.req.param('orgId');
+        const userId = c.req.param('userId');
+        const limit = Number.parseInt(c.req.query('limit') ?? '10', 10);
+        const offset = Number.parseInt(c.req.query('offset') ?? '0', 10);
+        const { logs, total } = await requestLogStore.listByOrgIdAndUserId(orgId, userId, {
+          limit,
+          offset,
+        });
+        return c.json({
+          logs: logs.map((log) => ({
+            id: log.id,
+            userId: log.userId,
+            orgId: log.orgId,
+            userEmail: log.userEmail,
+            userName: log.userName,
+            conversationId: log.conversationId,
+            model: log.model,
+            requestBody: log.requestBody,
+            responseBody: log.responseBody,
+            status: log.status,
+            promptTokens: log.promptTokens,
+            completionTokens: log.completionTokens,
+            totalTokens: log.totalTokens,
+            latencyMs: log.latencyMs,
+            createdAt: log.createdAt.toISOString(),
+          })),
+          total,
         });
       });
     }

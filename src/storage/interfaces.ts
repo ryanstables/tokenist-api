@@ -82,8 +82,20 @@ export interface StoredRequestLog {
   createdAt: Date;
 }
 
+export interface OrgLogUser {
+  userId: string;
+  userEmail?: string | null;
+  userName?: string | null;
+}
+
 export interface RequestLogStore {
   create(log: StoredRequestLog): Promise<StoredRequestLog>;
   listByOrgId(orgId: string, opts: { limit: number; offset: number }): Promise<{ logs: StoredRequestLog[]; total: number }>;
+  listUsersByOrgId(orgId: string): Promise<OrgLogUser[]>;
+  listByOrgIdAndUserId(
+    orgId: string,
+    userId: string,
+    opts: { limit: number; offset: number }
+  ): Promise<{ logs: StoredRequestLog[]; total: number }>;
   getById(id: string): Promise<StoredRequestLog | undefined>;
 }
