@@ -72,6 +72,7 @@ export interface StoredRequestLog {
   endUserName?: string | null;
   conversationId: string;
   model: string;
+  feature?: string | null;
   requestBody: string;
   responseBody?: string | null;
   status: string;

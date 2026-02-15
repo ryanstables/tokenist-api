@@ -471,6 +471,7 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     end_user_name: string | null;
     conversation_id: string;
     model: string;
+    feature: string | null;
     request_body: string;
     response_body: string | null;
     status: string;
@@ -498,6 +499,7 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
       endUserName: row.end_user_name,
       conversationId: row.conversation_id,
       model: row.model,
+      feature: row.feature,
       requestBody: row.request_body,
       responseBody: row.response_body,
       status: row.status,
@@ -521,8 +523,8 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     async create(log: StoredRequestLog): Promise<StoredRequestLog> {
       await db
         .prepare(
-          `INSERT INTO request_logs (id, end_user_id, org_id, end_user_email, end_user_name, conversation_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, cached_input_tokens, text_input_tokens, audio_input_tokens, image_input_tokens, text_output_tokens, audio_output_tokens, reasoning_tokens, cost_usd, latency_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO request_logs (id, end_user_id, org_id, end_user_email, end_user_name, conversation_id, model, feature, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, cached_input_tokens, text_input_tokens, audio_input_tokens, image_input_tokens, text_output_tokens, audio_output_tokens, reasoning_tokens, cost_usd, latency_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           log.id,
@@ -532,6 +534,7 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
           log.endUserName ?? null,
           log.conversationId,
           log.model,
+          log.feature ?? null,
           log.requestBody,
           log.responseBody ?? null,
           log.status,

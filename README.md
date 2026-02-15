@@ -104,19 +104,30 @@ wrangler deploy
 You can use tokenist-core as a library in your own Worker. Use the D1 adapters for persistent storage (recommended), or the in-memory adapters for testing:
 
 ```typescript
-import { createTokenist, createD1UsageStore, createD1Blocklist, createD1UserStore, createD1ApiKeyStore } from 'tokenist-core';
+import {
+  createTokenist,
+  createD1UsageStore,
+  createD1Blocklist,
+  createD1UserStore,
+  createD1ApiKeyStore,
+  createD1RequestLogStore,
+  createD1PricingStore,
+} from 'tokenist-core';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const pricingStore = createD1PricingStore(env.DB);
     const tokenist = createTokenist({
       openaiApiKey: env.OPENAI_API_KEY,
       jwtSecret: env.JWT_SECRET,
       defaultMaxCostUsd: 10,
       defaultMaxTotalTokens: 100000,
-      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10 }),
+      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10, pricingStore }),
       blocklist: createD1Blocklist(env.DB),
       userStore: createD1UserStore(env.DB),
       apiKeyStore: createD1ApiKeyStore(env.DB),
+      requestLogStore: createD1RequestLogStore(env.DB),
+      pricingStore,
     });
 
     return tokenist.fetch(request);
@@ -136,6 +147,7 @@ const ws = new WebSocket('wss://your-worker.workers.dev/v1/realtime?model=gpt-4o
     'x-user-email': 'alice@co.com', // optional – tracked with events
     'x-user-name': 'Alice Smith',   // optional – tracked with events
     'x-conversation-id': 'conv-1',  // optional – auto-generated if omitted
+    'x-feature': 'voice-assistant', // optional – identifies the product/feature
     // Optionally pass your own API key:
     // 'Authorization': 'Bearer sk-...'
   }
@@ -156,6 +168,7 @@ Upgrade to WebSocket connection for OpenAI Realtime API.
 - `x-user-email` (optional): User email address – stored with logged events
 - `x-user-name` (optional): User display name – stored with logged events
 - `x-conversation-id` (optional): Conversation ID to group requests/responses together. Auto-generated (UUID) if not provided
+- `x-feature` (optional): Product or feature name (e.g. `voice-assistant`, `customer-support`) – stored with logged events for filtering and analytics
 - `Authorization` (optional): `Bearer <api-key>` - uses server key if not provided
 
 **Query Parameters:**
@@ -319,9 +332,18 @@ Check if a user is allowed to make a request.
 {
   "userId": "user-123",
   "model": "gpt-4o-realtime-preview",
-  "requestType": "realtime"
+  "requestType": "realtime",
+  "feature": "voice-assistant"
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userId` | string | Yes | End-user identifier |
+| `model` | string | Yes | Model name |
+| `requestType` | string | Yes | `"realtime"`, `"chat"`, or `"embeddings"` |
+| `estimatedTokens` | number | No | Estimated token count for pre-check |
+| `feature` | string | No | Product or feature name for analytics |
 
 #### `POST /sdk/record`
 Record usage after a request completes.
@@ -335,25 +357,72 @@ Record usage after a request completes.
   "inputTokens": 500,
   "outputTokens": 1200,
   "latencyMs": 2300,
-  "success": true
+  "success": true,
+  "feature": "voice-assistant"
 }
 ```
 
 #### `POST /sdk/log`
 Log a full request/response payload with user context.
 
-**Body:**
+**Body (Chat Completions format):**
 ```json
 {
   "model": "gpt-4o",
   "request": { "messages": [{ "role": "user", "content": "Hello" }] },
-  "response": { "choices": [{ "message": { "content": "Hi!" } }], "usage": { "prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8 } },
+  "response": {
+    "choices": [{ "message": { "content": "Hi!" } }],
+    "usage": {
+      "prompt_tokens": 5,
+      "completion_tokens": 3,
+      "total_tokens": 8,
+      "prompt_tokens_details": { "cached_tokens": 0 },
+      "completion_tokens_details": { "reasoning_tokens": 0 }
+    }
+  },
   "latencyMs": 342,
   "status": "success",
   "conversationId": "conv-abc123",
   "userId": "user_alice",
   "userEmail": "alice@example.com",
-  "userName": "Alice Smith"
+  "userName": "Alice Smith",
+  "feature": "customer-support"
+}
+```
+
+**Body (Realtime API format):**
+```json
+{
+  "model": "gpt-4o-realtime-preview",
+  "request": { "type": "session.update", "session": { "instructions": "You are a helpful assistant." } },
+  "response": {
+    "type": "response.done",
+    "response": {
+      "id": "resp_001",
+      "status": "completed",
+      "usage": {
+        "total_tokens": 253,
+        "input_tokens": 132,
+        "output_tokens": 121,
+        "input_token_details": {
+          "text_tokens": 119,
+          "audio_tokens": 13,
+          "cached_tokens": 64
+        },
+        "output_token_details": {
+          "text_tokens": 91,
+          "audio_tokens": 30
+        }
+      }
+    }
+  },
+  "latencyMs": 2300,
+  "status": "success",
+  "conversationId": "conv-rt-001",
+  "userId": "user_alice",
+  "userEmail": "alice@example.com",
+  "userName": "Alice Smith",
+  "feature": "voice-assistant"
 }
 ```
 
@@ -361,13 +430,14 @@ Log a full request/response payload with user context.
 |-------|------|----------|-------------|
 | `model` | string | Yes | Model name |
 | `request` | object | Yes | Full request body |
-| `response` | object | No | Full response body |
+| `response` | object | No | Full response body (supports both Chat Completions and Realtime API usage formats) |
 | `latencyMs` | number | No | Request latency in milliseconds |
 | `status` | string | No | `"success"` (default) or `"error"` |
 | `conversationId` | string | No | Groups related requests. Auto-generated UUID if omitted |
 | `userId` | string | No | End-user id (unique per tracked user). If omitted, the API key owner's id is used; pass a unique value per end user so they appear separately in the dashboard |
 | `userEmail` | string | No | Email of the user who triggered the request |
 | `userName` | string | No | Display name of the user |
+| `feature` | string | No | Product or feature name (e.g. `voice-assistant`, `customer-support`) for filtering and analytics |
 
 **Response:**
 ```json
@@ -513,12 +583,14 @@ wrangler deploy
 If you use tokenist-core as a library in your own Worker, pass the D1 binding to the factory functions:
 
 ```typescript
-import { createTokenist } from 'tokenist-core';
 import {
+  createTokenist,
   createD1UsageStore,
   createD1Blocklist,
   createD1UserStore,
   createD1ApiKeyStore,
+  createD1RequestLogStore,
+  createD1PricingStore,
 } from 'tokenist-core';
 
 interface Env {
@@ -529,13 +601,16 @@ interface Env {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const pricingStore = createD1PricingStore(env.DB);
     const tokenist = createTokenist({
       openaiApiKey: env.OPENAI_API_KEY,
       jwtSecret: env.JWT_SECRET,
-      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10 }),
+      usageStore: createD1UsageStore(env.DB, { defaultMaxCostUsd: 10, pricingStore }),
       blocklist: createD1Blocklist(env.DB),
       userStore: createD1UserStore(env.DB),
       apiKeyStore: createD1ApiKeyStore(env.DB),
+      requestLogStore: createD1RequestLogStore(env.DB),
+      pricingStore,
     });
 
     return tokenist.fetch(request);
@@ -569,15 +644,21 @@ wrangler d1 execute tokenist-db --remote --file=./schema.sql
 
 ## Supported Models
 
-Pricing is configured for OpenAI Realtime models:
+Pricing is stored in the D1 database (`models`, `model_pricing`, `model_aliases` tables) and loaded into memory on first access. The `seed-pricing.sql` file contains pricing for 60+ OpenAI models across categories:
 
-| Model | Input (per 1K) | Output (per 1K) |
-|-------|----------------|-----------------|
-| `gpt-4o-realtime-preview` | $0.06 | $0.24 |
-| `gpt-4o-realtime-preview-2024-10-01` | $0.06 | $0.24 |
-| `gpt-4o-realtime-preview-2024-12-17` | $0.06 | $0.24 |
-| `gpt-4o-mini-realtime-preview` | $0.01 | $0.04 |
-| `gpt-4o-mini-realtime-preview-2024-12-17` | $0.01 | $0.04 |
+- **Flagship**: GPT-4.1, GPT-4o, GPT-4.5-preview
+- **Mini**: GPT-4.1-mini, GPT-4.1-nano, GPT-4o-mini
+- **Reasoning**: o3, o4-mini, o3-mini, o1
+- **Realtime**: gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview
+- **Audio**: gpt-4o-audio-preview, gpt-4o-mini-audio-preview
+- **Embedding**: text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002
+
+Each model has per-token-type pricing (text-input, text-output, cached-text-input, audio-input, audio-output) with support for processing tiers (standard, batch). Date-suffixed model IDs (e.g., `gpt-4o-realtime-preview-2024-12-17`) are automatically resolved via the `model_aliases` table.
+
+To seed pricing data:
+```bash
+wrangler d1 execute tokenist-db --local --file=./seed-pricing.sql
+```
 
 ## Development
 

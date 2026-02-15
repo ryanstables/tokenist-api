@@ -44,6 +44,7 @@ const sdkCheckSchema = z.object({
   model: z.string().min(1),
   estimatedTokens: z.number().int().nonnegative().optional(),
   requestType: z.enum(['realtime', 'chat', 'embeddings']),
+  feature: z.string().min(1).optional(),
 });
 
 const sdkLogSchema = z.object({
@@ -56,6 +57,7 @@ const sdkLogSchema = z.object({
   userId: z.string().min(1).optional(),
   userEmail: z.string().optional(),
   userName: z.string().optional(),
+  feature: z.string().min(1).optional(),
 });
 
 const sdkRecordSchema = z.object({
@@ -67,6 +69,7 @@ const sdkRecordSchema = z.object({
   latencyMs: z.number().nonnegative(),
   success: z.boolean(),
   timestamp: z.string().datetime().optional(),
+  feature: z.string().min(1).optional(),
 });
 
 type RuleRecord = {
@@ -616,6 +619,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         userName: log.endUserName,
         conversationId: log.conversationId,
         model: log.model,
+        feature: log.feature ?? null,
         requestBody: log.requestBody,
         responseBody: log.responseBody,
         status: log.status,
@@ -1034,6 +1038,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           userId: clientUserId,
           userEmail: clientEmail,
           userName: clientName,
+          feature: clientFeature,
         } = result.data;
 
         // End user id: client-supplied (per end user) or fall back to API key owner
@@ -1131,6 +1136,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           endUserName,
           conversationId,
           model,
+          feature: clientFeature ?? null,
           requestBody: JSON.stringify(reqBody),
           responseBody: resBody ? JSON.stringify(resBody) : null,
           status: status ?? 'success',

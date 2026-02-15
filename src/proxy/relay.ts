@@ -14,6 +14,7 @@ export interface RelayContext {
   name?: string;
   conversationId: string;
   model: string;
+  feature?: string;
   periodKey?: string;
 }
 

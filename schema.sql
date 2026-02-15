@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
   end_user_name TEXT,
   conversation_id TEXT NOT NULL,
   model TEXT NOT NULL,
+  feature TEXT,
   request_body TEXT NOT NULL,
   response_body TEXT,
   status TEXT NOT NULL DEFAULT 'success',
@@ -90,6 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_end_user_id ON request_logs(end_user
 CREATE INDEX IF NOT EXISTS idx_request_logs_org_id ON request_logs(org_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_request_logs_conversation_id ON request_logs(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_feature ON request_logs(feature);
 
 -- Model registry
 CREATE TABLE IF NOT EXISTS models (
