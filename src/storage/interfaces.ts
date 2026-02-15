@@ -99,3 +99,33 @@ export interface RequestLogStore {
   ): Promise<{ logs: StoredRequestLog[]; total: number }>;
   getById(id: string): Promise<StoredRequestLog | undefined>;
 }
+
+export interface ModelRecord {
+  modelId: string;
+  displayName: string;
+  category: string;
+  isAvailable: boolean;
+}
+
+export interface ModelTokenPricing {
+  modelId: string;
+  tokenType: string;
+  processingTier: string;
+  pricePerMillion: number;
+}
+
+export interface ModelPricing {
+  inputPer1K: number;
+  outputPer1K: number;
+  audioPer1K?: number;
+  cachedInputPer1K?: number;
+}
+
+export interface PricingStore {
+  resolveModelId(model: string): Promise<string>;
+  getModelTokenTypes(modelId: string, processingTier?: string): Promise<ModelTokenPricing[]>;
+  getPricing(model: string, processingTier?: string): Promise<ModelPricing>;
+  calculateCost(model: string, inputTokens: number, outputTokens: number, processingTier?: string): Promise<number>;
+  listModels(): Promise<ModelRecord[]>;
+  listModelsByCategory(category: string): Promise<ModelRecord[]>;
+}

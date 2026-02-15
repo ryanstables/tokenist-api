@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { createAuthMiddleware, createApiKeyMiddleware } from './middleware';
 import { getPeriodKey, getRolling24hPeriodKeys } from '../storage/period';
-import { calculateCost } from '../usage/pricing';
+import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
 type Env = {
   Variables: {
@@ -23,6 +23,7 @@ export interface AdminRouteDeps {
   userStore?: UserStore;
   apiKeyStore?: ApiKeyStore;
   requestLogStore?: RequestLogStore;
+  pricingStore?: PricingStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -119,7 +120,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, logger, jwtSecret, jwtExpiresIn } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, logger, jwtSecret, jwtExpiresIn } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -324,7 +325,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
               const outT = log.completionTokens ?? 0;
               inputTokens += inT;
               outputTokens += outT;
-              costUsd += calculateCost(log.model, inT, outT);
+              costUsd += pricingStore
+                ? await pricingStore.calculateCost(log.model, inT, outT)
+                : staticCalculateCost(log.model, inT, outT);
             }
             if (inputTokens > 0 || outputTokens > 0) {
               usage = {

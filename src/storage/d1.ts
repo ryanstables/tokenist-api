@@ -10,12 +10,16 @@ import type {
   RequestLogStore,
   StoredRequestLog,
   OrgLogEndUser,
+  PricingStore,
+  ModelRecord,
+  ModelTokenPricing,
+  ModelPricing,
 } from './interfaces';
-import { calculateCost } from '../usage/pricing';
 
 export interface D1StoreOptions {
   defaultMaxCostUsd?: number;
   defaultMaxTotalTokens?: number;
+  pricingStore?: PricingStore;
 }
 
 export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {}): UsageStore {
@@ -61,7 +65,9 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
       const newInput = (existing?.input_tokens ?? 0) + inputTokens;
       const newOutput = (existing?.output_tokens ?? 0) + outputTokens;
       const newTotal = newInput + newOutput;
-      const newCost = calculateCost(model, newInput, newOutput);
+      const newCost = options.pricingStore
+        ? await options.pricingStore.calculateCost(model, newInput, newOutput)
+        : fallbackCalculateCost(model, newInput, newOutput);
       const now = new Date().toISOString();
 
       await db
@@ -590,6 +596,166 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
         .bind(id)
         .first<LogRow>();
       return row ? rowToLog(row) : undefined;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback: simple cost calculation when no PricingStore is available
+// ---------------------------------------------------------------------------
+
+function fallbackCalculateCost(model: string, inputTokens: number, outputTokens: number): number {
+  // Default to gpt-4o-realtime-preview text rates
+  const inputPer1K = 5 / 1000;
+  const outputPer1K = 20 / 1000;
+  return (inputTokens / 1000) * inputPer1K + (outputTokens / 1000) * outputPer1K;
+}
+
+// ---------------------------------------------------------------------------
+// D1 PricingStore
+// ---------------------------------------------------------------------------
+
+const DATE_SUFFIX_RE = /-\d{4}-\d{2}-\d{2}$/;
+
+export function createD1PricingStore(db: D1Database): PricingStore {
+  // In-memory cache: populated on first access, keyed by model_id
+  let pricingCache: Map<string, ModelTokenPricing[]> | null = null;
+  let aliasCache: Map<string, string> | null = null;
+  let modelCache: ModelRecord[] | null = null;
+
+  async function ensureCache(): Promise<void> {
+    if (pricingCache) return;
+
+    const [pricingResults, aliasResults, modelResults] = await Promise.all([
+      db.prepare('SELECT * FROM model_pricing').all<{
+        model_id: string;
+        token_type: string;
+        processing_tier: string;
+        price_per_million: number;
+      }>(),
+      db.prepare('SELECT * FROM model_aliases').all<{
+        alias: string;
+        model_id: string;
+      }>(),
+      db.prepare('SELECT * FROM models').all<{
+        model_id: string;
+        display_name: string;
+        category: string;
+        is_available: number;
+      }>(),
+    ]);
+
+    pricingCache = new Map();
+    for (const row of pricingResults.results) {
+      const entries = pricingCache.get(row.model_id) ?? [];
+      entries.push({
+        modelId: row.model_id,
+        tokenType: row.token_type,
+        processingTier: row.processing_tier,
+        pricePerMillion: row.price_per_million,
+      });
+      pricingCache.set(row.model_id, entries);
+    }
+
+    aliasCache = new Map();
+    for (const row of aliasResults.results) {
+      aliasCache.set(row.alias, row.model_id);
+    }
+
+    modelCache = modelResults.results.map((row) => ({
+      modelId: row.model_id,
+      displayName: row.display_name,
+      category: row.category,
+      isAvailable: row.is_available === 1,
+    }));
+  }
+
+  return {
+    async resolveModelId(model: string): Promise<string> {
+      await ensureCache();
+      // 1. Exact match in pricing table
+      if (pricingCache!.has(model)) return model;
+      // 2. Check alias table
+      const aliased = aliasCache!.get(model);
+      if (aliased) return aliased;
+      // 3. Strip date suffix (e.g., gpt-4o-mini-realtime-preview-2024-12-17 → gpt-4o-mini-realtime-preview)
+      const stripped = model.replace(DATE_SUFFIX_RE, '');
+      if (stripped !== model && pricingCache!.has(stripped)) return stripped;
+      // 4. Check alias for stripped version
+      const strippedAlias = aliasCache!.get(stripped);
+      if (strippedAlias) return strippedAlias;
+      // Return original model (will use default pricing)
+      return model;
+    },
+
+    async getModelTokenTypes(modelId: string, processingTier = 'standard'): Promise<ModelTokenPricing[]> {
+      await ensureCache();
+      const resolved = await this.resolveModelId(modelId);
+      const entries = pricingCache!.get(resolved) ?? [];
+      return entries.filter((e) => e.processingTier === processingTier);
+    },
+
+    async getPricing(model: string, processingTier = 'standard'): Promise<ModelPricing> {
+      await ensureCache();
+      const resolved = await this.resolveModelId(model);
+      const entries = pricingCache!.get(resolved);
+
+      if (!entries || entries.length === 0) {
+        // Default pricing aligned with gpt-4o-realtime-preview text rates
+        return {
+          inputPer1K: 5 / 1000,
+          outputPer1K: 20 / 1000,
+          audioPer1K: 80 / 1000,
+        };
+      }
+
+      const tierEntries = entries.filter((e) => e.processingTier === processingTier);
+      // Fall back to standard if requested tier not found
+      const effective = tierEntries.length > 0
+        ? tierEntries
+        : entries.filter((e) => e.processingTier === 'standard');
+
+      const pricing: ModelPricing = {
+        inputPer1K: 0,
+        outputPer1K: 0,
+      };
+
+      for (const entry of effective) {
+        const per1K = entry.pricePerMillion / 1000;
+        switch (entry.tokenType) {
+          case 'text-input':
+            pricing.inputPer1K = per1K;
+            break;
+          case 'text-output':
+            pricing.outputPer1K = per1K;
+            break;
+          case 'cached-text-input':
+            pricing.cachedInputPer1K = per1K;
+            break;
+          case 'audio-output':
+            pricing.audioPer1K = per1K;
+            break;
+        }
+      }
+
+      return pricing;
+    },
+
+    async calculateCost(model: string, inputTokens: number, outputTokens: number, processingTier?: string): Promise<number> {
+      const pricing = await this.getPricing(model, processingTier);
+      const inputCost = (inputTokens / 1000) * pricing.inputPer1K;
+      const outputCost = (outputTokens / 1000) * pricing.outputPer1K;
+      return inputCost + outputCost;
+    },
+
+    async listModels(): Promise<ModelRecord[]> {
+      await ensureCache();
+      return modelCache!;
+    },
+
+    async listModelsByCategory(category: string): Promise<ModelRecord[]> {
+      await ensureCache();
+      return modelCache!.filter((m) => m.category === category);
     },
   };
 }
