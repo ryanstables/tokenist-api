@@ -44,7 +44,10 @@ export type {
   ResponseOutputTextDelta,
   ResponseOutputAudioTranscriptDelta,
   ResponseDone,
+  ResponseFunctionCallArgumentsDelta,
+  ResponseFunctionCallArgumentsDone,
   SessionCreated,
+  RateLimitsUpdated,
 } from './types/events';
 export type { JWTPayload } from './auth/jwt';
 export type { RelayContext, RelayHooks } from './proxy/relay';

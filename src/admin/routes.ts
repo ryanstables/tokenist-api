@@ -1052,9 +1052,10 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const endUserName = clientName || user?.displayName || null;
 
         // Extract token counts from response.usage if present
-        // Supports both Chat Completions format (prompt_tokens/completion_tokens) and
-        // Realtime API format (input_tokens/output_tokens)
-        const usage = resBody?.usage as
+        // Supports both Chat Completions format (response.usage) and
+        // Realtime API format (response.response.usage from response.done events)
+        const rawResponse = resBody as Record<string, unknown> | undefined;
+        const usage = (rawResponse?.usage ?? (rawResponse?.response as Record<string, unknown> | undefined)?.usage) as
           | {
               prompt_tokens?: number;
               completion_tokens?: number;

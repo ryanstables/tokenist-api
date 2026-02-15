@@ -104,6 +104,24 @@ export interface ResponseDone extends BaseEvent {
   };
 }
 
+export interface ResponseFunctionCallArgumentsDelta extends BaseEvent {
+  type: 'response.function_call_arguments.delta';
+  response_id: string;
+  item_id: string;
+  output_index: number;
+  call_id: string;
+  delta: string;
+}
+
+export interface ResponseFunctionCallArgumentsDone extends BaseEvent {
+  type: 'response.function_call_arguments.done';
+  response_id: string;
+  item_id: string;
+  output_index: number;
+  call_id: string;
+  arguments: string;
+}
+
 export interface SessionCreated extends BaseEvent {
   type: 'session.created';
   session: {
@@ -111,6 +129,16 @@ export interface SessionCreated extends BaseEvent {
     model: string;
     [key: string]: unknown;
   };
+}
+
+export interface RateLimitsUpdated extends BaseEvent {
+  type: 'rate_limits.updated';
+  rate_limits: Array<{
+    name: string;
+    limit: number;
+    remaining: number;
+    reset_seconds: number;
+  }>;
 }
 
 export type ClientEvent =
@@ -124,6 +152,9 @@ export type ServerEvent =
   | ResponseAudioTranscriptDelta
   | ResponseOutputTextDelta
   | ResponseOutputAudioTranscriptDelta
+  | ResponseFunctionCallArgumentsDelta
+  | ResponseFunctionCallArgumentsDone
   | ResponseDone
   | SessionCreated
+  | RateLimitsUpdated
   | BaseEvent;
