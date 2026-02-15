@@ -14,6 +14,7 @@ import type {
   ModelRecord,
   ModelTokenPricing,
   ModelPricing,
+  DetailedTokenUsage,
 } from './interfaces';
 import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
@@ -378,6 +379,36 @@ export function createInMemoryPricingStore(): PricingStore {
     async calculateCost(model: string, inputTokens: number, outputTokens: number, _processingTier?: string): Promise<number> {
       const resolved = await this.resolveModelId(model);
       return staticCalculateCost(resolved, inputTokens, outputTokens);
+    },
+
+    async calculateDetailedCost(model: string, usage: DetailedTokenUsage, _processingTier?: string): Promise<number> {
+      const resolved = await this.resolveModelId(model);
+      const pricing = staticGetPricing(resolved);
+      let cost = 0;
+
+      if (usage.cachedInputTokens && pricing.cachedInputPer1K) {
+        cost += (usage.cachedInputTokens / 1000) * pricing.cachedInputPer1K;
+        const nonCachedTextInput = (usage.textInputTokens ?? 0) - (usage.cachedInputTokens ?? 0);
+        if (nonCachedTextInput > 0) {
+          cost += (nonCachedTextInput / 1000) * pricing.inputPer1K;
+        }
+      } else if (usage.textInputTokens !== undefined) {
+        cost += (usage.textInputTokens / 1000) * pricing.inputPer1K;
+      } else {
+        cost += (usage.inputTokens / 1000) * pricing.inputPer1K;
+      }
+
+      if (usage.textOutputTokens !== undefined) {
+        cost += (usage.textOutputTokens / 1000) * pricing.outputPer1K;
+      } else {
+        cost += (usage.outputTokens / 1000) * pricing.outputPer1K;
+      }
+
+      if (usage.audioOutputTokens && pricing.audioPer1K) {
+        cost += (usage.audioOutputTokens / 1000) * pricing.audioPer1K;
+      }
+
+      return cost;
     },
 
     async listModels(): Promise<ModelRecord[]> {

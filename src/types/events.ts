@@ -67,14 +67,38 @@ export interface ResponseDone extends BaseEvent {
       total_tokens: number;
       input_tokens: number;
       output_tokens: number;
+      // Realtime API format
       input_token_details?: {
         cached_tokens?: number;
         text_tokens?: number;
         audio_tokens?: number;
+        image_tokens?: number;
+        cached_tokens_details?: {
+          text_tokens?: number;
+          audio_tokens?: number;
+          image_tokens?: number;
+        };
       };
       output_token_details?: {
         text_tokens?: number;
         audio_tokens?: number;
+        reasoning_tokens?: number;
+      };
+      // Chat Completions API format
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: {
+        cached_tokens?: number;
+        text_tokens?: number;
+        audio_tokens?: number;
+        image_tokens?: number;
+      };
+      completion_tokens_details?: {
+        text_tokens?: number;
+        audio_tokens?: number;
+        reasoning_tokens?: number;
+        accepted_prediction_tokens?: number;
+        rejected_prediction_tokens?: number;
       };
     };
   };

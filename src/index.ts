@@ -21,6 +21,7 @@ export type {
   PricingStore,
   ModelRecord,
   ModelTokenPricing,
+  DetailedTokenUsage,
 } from './storage/interfaces';
 export type {
   UsageWindow,
@@ -49,7 +50,7 @@ export type { JWTPayload } from './auth/jwt';
 export type { RelayContext, RelayHooks } from './proxy/relay';
 export type { ThresholdCheck } from './guardrails/policy';
 export type { ExtractIdentityResult, IdentityResult, IdentityError } from './guardrails/identity';
-export type { TokenEstimate, ResponseUsage } from './usage/estimator';
+export type { TokenEstimate, TokenDetails, ResponseUsage } from './usage/estimator';
 export type { ModelPricing } from './usage/pricing';
 
 // Re-export implementations

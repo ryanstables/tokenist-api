@@ -66,6 +66,8 @@ export function setupRelay(
           inputTokens: actualUsage.inputTokens,
           outputTokens: actualUsage.outputTokens,
           totalTokens: actualUsage.totalTokens,
+          inputTokenDetails: actualUsage.inputTokenDetails,
+          outputTokenDetails: actualUsage.outputTokenDetails,
         },
         'OpenAI usage received (response.done)'
       );

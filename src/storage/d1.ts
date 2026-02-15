@@ -14,6 +14,7 @@ import type {
   ModelRecord,
   ModelTokenPricing,
   ModelPricing,
+  DetailedTokenUsage,
 } from './interfaces';
 
 export interface D1StoreOptions {
@@ -476,6 +477,14 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     prompt_tokens: number | null;
     completion_tokens: number | null;
     total_tokens: number | null;
+    cached_input_tokens: number | null;
+    text_input_tokens: number | null;
+    audio_input_tokens: number | null;
+    image_input_tokens: number | null;
+    text_output_tokens: number | null;
+    audio_output_tokens: number | null;
+    reasoning_tokens: number | null;
+    cost_usd: number | null;
     latency_ms: number | null;
     created_at: string;
   };
@@ -495,6 +504,14 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
       promptTokens: row.prompt_tokens,
       completionTokens: row.completion_tokens,
       totalTokens: row.total_tokens,
+      cachedInputTokens: row.cached_input_tokens,
+      textInputTokens: row.text_input_tokens,
+      audioInputTokens: row.audio_input_tokens,
+      imageInputTokens: row.image_input_tokens,
+      textOutputTokens: row.text_output_tokens,
+      audioOutputTokens: row.audio_output_tokens,
+      reasoningTokens: row.reasoning_tokens,
+      costUsd: row.cost_usd,
       latencyMs: row.latency_ms,
       createdAt: new Date(row.created_at),
     };
@@ -504,8 +521,8 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     async create(log: StoredRequestLog): Promise<StoredRequestLog> {
       await db
         .prepare(
-          `INSERT INTO request_logs (id, end_user_id, org_id, end_user_email, end_user_name, conversation_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, latency_ms, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO request_logs (id, end_user_id, org_id, end_user_email, end_user_name, conversation_id, model, request_body, response_body, status, prompt_tokens, completion_tokens, total_tokens, cached_input_tokens, text_input_tokens, audio_input_tokens, image_input_tokens, text_output_tokens, audio_output_tokens, reasoning_tokens, cost_usd, latency_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           log.id,
@@ -521,6 +538,14 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
           log.promptTokens ?? null,
           log.completionTokens ?? null,
           log.totalTokens ?? null,
+          log.cachedInputTokens ?? null,
+          log.textInputTokens ?? null,
+          log.audioInputTokens ?? null,
+          log.imageInputTokens ?? null,
+          log.textOutputTokens ?? null,
+          log.audioOutputTokens ?? null,
+          log.reasoningTokens ?? null,
+          log.costUsd ?? null,
           log.latencyMs ?? null,
           log.createdAt.toISOString()
         )
@@ -732,6 +757,9 @@ export function createD1PricingStore(db: D1Database): PricingStore {
           case 'cached-text-input':
             pricing.cachedInputPer1K = per1K;
             break;
+          case 'audio-input':
+            pricing.audioInputPer1K = per1K;
+            break;
           case 'audio-output':
             pricing.audioPer1K = per1K;
             break;
@@ -746,6 +774,48 @@ export function createD1PricingStore(db: D1Database): PricingStore {
       const inputCost = (inputTokens / 1000) * pricing.inputPer1K;
       const outputCost = (outputTokens / 1000) * pricing.outputPer1K;
       return inputCost + outputCost;
+    },
+
+    async calculateDetailedCost(model: string, usage: DetailedTokenUsage, processingTier?: string): Promise<number> {
+      const pricing = await this.getPricing(model, processingTier);
+      let cost = 0;
+
+      if (usage.cachedInputTokens && pricing.cachedInputPer1K) {
+        // Cached input tokens use the discounted rate
+        cost += (usage.cachedInputTokens / 1000) * pricing.cachedInputPer1K;
+        // Non-cached text input tokens
+        const nonCachedTextInput = (usage.textInputTokens ?? 0) - (usage.cachedInputTokens ?? 0);
+        if (nonCachedTextInput > 0) {
+          cost += (nonCachedTextInput / 1000) * pricing.inputPer1K;
+        }
+      } else if (usage.textInputTokens !== undefined) {
+        cost += (usage.textInputTokens / 1000) * pricing.inputPer1K;
+      } else {
+        // Fallback to aggregate input tokens
+        cost += (usage.inputTokens / 1000) * pricing.inputPer1K;
+      }
+
+      // Audio input tokens
+      if (usage.audioInputTokens && pricing.audioInputPer1K) {
+        cost += (usage.audioInputTokens / 1000) * pricing.audioInputPer1K;
+      }
+
+      // Text output tokens
+      if (usage.textOutputTokens !== undefined) {
+        cost += (usage.textOutputTokens / 1000) * pricing.outputPer1K;
+      } else {
+        cost += (usage.outputTokens / 1000) * pricing.outputPer1K;
+      }
+
+      // Audio output tokens
+      if (usage.audioOutputTokens && pricing.audioPer1K) {
+        cost += (usage.audioOutputTokens / 1000) * pricing.audioPer1K;
+      }
+
+      // Reasoning tokens are billed as output tokens (already included in outputTokens aggregate)
+      // but if we have granular breakdown, they're already counted in textOutputTokens
+
+      return cost;
     },
 
     async listModels(): Promise<ModelRecord[]> {

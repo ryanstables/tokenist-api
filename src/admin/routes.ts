@@ -622,6 +622,16 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         promptTokens: log.promptTokens,
         completionTokens: log.completionTokens,
         totalTokens: log.totalTokens,
+        tokenDetails: {
+          cachedInputTokens: log.cachedInputTokens ?? null,
+          textInputTokens: log.textInputTokens ?? null,
+          audioInputTokens: log.audioInputTokens ?? null,
+          imageInputTokens: log.imageInputTokens ?? null,
+          textOutputTokens: log.textOutputTokens ?? null,
+          audioOutputTokens: log.audioOutputTokens ?? null,
+          reasoningTokens: log.reasoningTokens ?? null,
+        },
+        costUsd: log.costUsd ?? null,
         latencyMs: log.latencyMs,
         createdAt: log.createdAt.toISOString(),
       });
@@ -1037,12 +1047,80 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const endUserName = clientName || user?.displayName || null;
 
         // Extract token counts from response.usage if present
+        // Supports both Chat Completions format (prompt_tokens/completion_tokens) and
+        // Realtime API format (input_tokens/output_tokens)
         const usage = resBody?.usage as
-          | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+          | {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              total_tokens?: number;
+              input_tokens?: number;
+              output_tokens?: number;
+              prompt_tokens_details?: {
+                cached_tokens?: number;
+                text_tokens?: number;
+                audio_tokens?: number;
+                image_tokens?: number;
+              };
+              completion_tokens_details?: {
+                text_tokens?: number;
+                audio_tokens?: number;
+                reasoning_tokens?: number;
+              };
+              input_token_details?: {
+                cached_tokens?: number;
+                text_tokens?: number;
+                audio_tokens?: number;
+                image_tokens?: number;
+              };
+              output_token_details?: {
+                text_tokens?: number;
+                audio_tokens?: number;
+                reasoning_tokens?: number;
+              };
+            }
           | undefined;
-        const promptTokens = usage?.prompt_tokens ?? null;
-        const completionTokens = usage?.completion_tokens ?? null;
+
+        const promptTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? null;
+        const completionTokens = usage?.completion_tokens ?? usage?.output_tokens ?? null;
         const totalTokens = usage?.total_tokens ?? null;
+
+        // Extract granular input token details (Chat: prompt_tokens_details, Realtime: input_token_details)
+        const inputDetails = usage?.prompt_tokens_details ?? usage?.input_token_details;
+        const cachedInputTokens = inputDetails?.cached_tokens ?? null;
+        const textInputTokens = inputDetails?.text_tokens ?? null;
+        const audioInputTokens = inputDetails?.audio_tokens ?? null;
+        const imageInputTokens = inputDetails?.image_tokens ?? null;
+
+        // Extract granular output token details (Chat: completion_tokens_details, Realtime: output_token_details)
+        const outputDetails = usage?.completion_tokens_details ?? usage?.output_token_details;
+        const textOutputTokens = outputDetails?.text_tokens ?? null;
+        const audioOutputTokens = outputDetails?.audio_tokens ?? null;
+        const reasoningTokens = outputDetails?.reasoning_tokens ?? null;
+
+        // Calculate per-request cost using granular data when available
+        const inputTokens = promptTokens ?? 0;
+        const outputTokens = completionTokens ?? 0;
+        let requestCost: number | null = null;
+        if (inputTokens > 0 || outputTokens > 0) {
+          if (pricingStore && (textInputTokens !== null || audioInputTokens !== null || audioOutputTokens !== null)) {
+            requestCost = await pricingStore.calculateDetailedCost(model, {
+              inputTokens,
+              outputTokens,
+              cachedInputTokens: cachedInputTokens ?? undefined,
+              textInputTokens: textInputTokens ?? undefined,
+              audioInputTokens: audioInputTokens ?? undefined,
+              imageInputTokens: imageInputTokens ?? undefined,
+              textOutputTokens: textOutputTokens ?? undefined,
+              audioOutputTokens: audioOutputTokens ?? undefined,
+              reasoningTokens: reasoningTokens ?? undefined,
+            });
+          } else if (pricingStore) {
+            requestCost = await pricingStore.calculateCost(model, inputTokens, outputTokens);
+          } else {
+            requestCost = staticCalculateCost(model, inputTokens, outputTokens);
+          }
+        }
 
         const id = crypto.randomUUID();
         const log = await requestLogStore.create({
@@ -1059,13 +1137,19 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           promptTokens,
           completionTokens,
           totalTokens,
+          cachedInputTokens,
+          textInputTokens,
+          audioInputTokens,
+          imageInputTokens,
+          textOutputTokens,
+          audioOutputTokens,
+          reasoningTokens,
+          costUsd: requestCost,
           latencyMs: latencyMs ?? null,
           createdAt: new Date(),
         });
 
         // Record usage so dashboard summary and charts show tokens/cost (stored under 'default' period key)
-        const inputTokens = promptTokens ?? 0;
-        const outputTokens = completionTokens ?? 0;
         if (inputTokens > 0 || outputTokens > 0) {
           await usageStore.updateUsage(endUserId, model, inputTokens, outputTokens, 'default');
         }

@@ -78,6 +78,17 @@ export interface StoredRequestLog {
   promptTokens?: number | null;
   completionTokens?: number | null;
   totalTokens?: number | null;
+  // Granular input token breakdown
+  cachedInputTokens?: number | null;
+  textInputTokens?: number | null;
+  audioInputTokens?: number | null;
+  imageInputTokens?: number | null;
+  // Granular output token breakdown
+  textOutputTokens?: number | null;
+  audioOutputTokens?: number | null;
+  reasoningTokens?: number | null;
+  // Per-request cost
+  costUsd?: number | null;
   latencyMs?: number | null;
   createdAt: Date;
 }
@@ -119,6 +130,19 @@ export interface ModelPricing {
   outputPer1K: number;
   audioPer1K?: number;
   cachedInputPer1K?: number;
+  audioInputPer1K?: number;
+}
+
+export interface DetailedTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  textInputTokens?: number;
+  audioInputTokens?: number;
+  imageInputTokens?: number;
+  textOutputTokens?: number;
+  audioOutputTokens?: number;
+  reasoningTokens?: number;
 }
 
 export interface PricingStore {
@@ -126,6 +150,7 @@ export interface PricingStore {
   getModelTokenTypes(modelId: string, processingTier?: string): Promise<ModelTokenPricing[]>;
   getPricing(model: string, processingTier?: string): Promise<ModelPricing>;
   calculateCost(model: string, inputTokens: number, outputTokens: number, processingTier?: string): Promise<number>;
+  calculateDetailedCost(model: string, usage: DetailedTokenUsage, processingTier?: string): Promise<number>;
   listModels(): Promise<ModelRecord[]>;
   listModelsByCategory(category: string): Promise<ModelRecord[]>;
 }

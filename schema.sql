@@ -72,6 +72,17 @@ CREATE TABLE IF NOT EXISTS request_logs (
   prompt_tokens INTEGER,
   completion_tokens INTEGER,
   total_tokens INTEGER,
+  -- Granular input token breakdown
+  cached_input_tokens INTEGER,
+  text_input_tokens INTEGER,
+  audio_input_tokens INTEGER,
+  image_input_tokens INTEGER,
+  -- Granular output token breakdown
+  text_output_tokens INTEGER,
+  audio_output_tokens INTEGER,
+  reasoning_tokens INTEGER,
+  -- Per-request cost
+  cost_usd REAL,
   latency_ms REAL,
   created_at TEXT NOT NULL
 );
