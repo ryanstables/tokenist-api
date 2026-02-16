@@ -5,6 +5,7 @@ import {
   createD1UserStore,
   createD1ApiKeyStore,
   createD1RequestLogStore,
+  createD1PricingStore,
 } from './storage/d1';
 
 interface Env {
@@ -24,6 +25,8 @@ export default {
       ? parseInt(env.DEFAULT_MAX_TOTAL_TOKENS, 10)
       : 0;
 
+    const pricingStore = createD1PricingStore(env.DB);
+
     const tokenist = createTokenist({
       openaiApiKey: env.OPENAI_API_KEY,
       jwtSecret: env.JWT_SECRET,
@@ -32,11 +35,13 @@ export default {
       usageStore: createD1UsageStore(env.DB, {
         defaultMaxCostUsd,
         defaultMaxTotalTokens,
+        pricingStore,
       }),
       blocklist: createD1Blocklist(env.DB),
       userStore: createD1UserStore(env.DB),
       apiKeyStore: createD1ApiKeyStore(env.DB),
       requestLogStore: createD1RequestLogStore(env.DB),
+      pricingStore,
     });
 
     return tokenist.fetch(request);

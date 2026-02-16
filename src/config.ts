@@ -1,6 +1,6 @@
 import type { UsageWindow } from './types/user';
 import type { LogLevel, Logger } from './logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore } from './storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore } from './storage/interfaces';
 
 export interface TokenistConfig {
   openaiApiKey: string;
@@ -16,5 +16,6 @@ export interface TokenistConfig {
   userStore?: UserStore;
   apiKeyStore?: ApiKeyStore;
   requestLogStore?: RequestLogStore;
+  pricingStore?: PricingStore;
   logger?: Logger;
 }

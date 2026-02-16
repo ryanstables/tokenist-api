@@ -1,10 +1,9 @@
 // Pricing per 1K tokens in USD (converted from OpenAI per-1M token prices)
-export interface ModelPricing {
-  inputPer1K: number;
-  outputPer1K: number;
-  audioPer1K?: number;
-  cachedInputPer1K?: number;
-}
+// This module retains the static pricing lookup as a fallback.
+// The primary pricing source is now the database via PricingStore.
+
+export type { ModelPricing } from '../storage/interfaces';
+import type { ModelPricing } from '../storage/interfaces';
 
 // Helper: price per 1M → per 1K
 const per1K = (per1M: number) => per1M / 1000;
@@ -120,10 +119,18 @@ const DEFAULT_PRICING: ModelPricing = {
   audioPer1K: per1K(80),
 };
 
+/**
+ * Static pricing lookup (fallback when PricingStore is not available).
+ * Prefer using PricingStore.getPricing() for database-backed pricing.
+ */
 export function getPricing(model: string): ModelPricing {
   return PRICING[model] || DEFAULT_PRICING;
 }
 
+/**
+ * Static cost calculation (fallback when PricingStore is not available).
+ * Prefer using PricingStore.calculateCost() for database-backed pricing.
+ */
 export function calculateCost(
   model: string,
   inputTokens: number,

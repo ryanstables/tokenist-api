@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
 import { hashPassword, verifyPassword } from '../auth/password';
 import { createAuthMiddleware, createApiKeyMiddleware } from './middleware';
 import { getPeriodKey, getRolling24hPeriodKeys } from '../storage/period';
-import { calculateCost } from '../usage/pricing';
+import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
 type Env = {
   Variables: {
@@ -23,6 +23,7 @@ export interface AdminRouteDeps {
   userStore?: UserStore;
   apiKeyStore?: ApiKeyStore;
   requestLogStore?: RequestLogStore;
+  pricingStore?: PricingStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -43,6 +44,7 @@ const sdkCheckSchema = z.object({
   model: z.string().min(1),
   estimatedTokens: z.number().int().nonnegative().optional(),
   requestType: z.enum(['realtime', 'chat', 'embeddings']),
+  feature: z.string().min(1).optional(),
 });
 
 const sdkLogSchema = z.object({
@@ -55,6 +57,7 @@ const sdkLogSchema = z.object({
   userId: z.string().min(1).optional(),
   userEmail: z.string().optional(),
   userName: z.string().optional(),
+  feature: z.string().min(1).optional(),
 });
 
 const sdkRecordSchema = z.object({
@@ -66,6 +69,7 @@ const sdkRecordSchema = z.object({
   latencyMs: z.number().nonnegative(),
   success: z.boolean(),
   timestamp: z.string().datetime().optional(),
+  feature: z.string().min(1).optional(),
 });
 
 type RuleRecord = {
@@ -119,7 +123,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, logger, jwtSecret, jwtExpiresIn } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, logger, jwtSecret, jwtExpiresIn } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -324,7 +328,9 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
               const outT = log.completionTokens ?? 0;
               inputTokens += inT;
               outputTokens += outT;
-              costUsd += calculateCost(log.model, inT, outT);
+              costUsd += pricingStore
+                ? await pricingStore.calculateCost(log.model, inT, outT)
+                : staticCalculateCost(log.model, inT, outT);
             }
             if (inputTokens > 0 || outputTokens > 0) {
               usage = {
@@ -613,12 +619,23 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         userName: log.endUserName,
         conversationId: log.conversationId,
         model: log.model,
+        feature: log.feature ?? null,
         requestBody: log.requestBody,
         responseBody: log.responseBody,
         status: log.status,
         promptTokens: log.promptTokens,
         completionTokens: log.completionTokens,
         totalTokens: log.totalTokens,
+        tokenDetails: {
+          cachedInputTokens: log.cachedInputTokens ?? null,
+          textInputTokens: log.textInputTokens ?? null,
+          audioInputTokens: log.audioInputTokens ?? null,
+          imageInputTokens: log.imageInputTokens ?? null,
+          textOutputTokens: log.textOutputTokens ?? null,
+          audioOutputTokens: log.audioOutputTokens ?? null,
+          reasoningTokens: log.reasoningTokens ?? null,
+        },
+        costUsd: log.costUsd ?? null,
         latencyMs: log.latencyMs,
         createdAt: log.createdAt.toISOString(),
       });
@@ -1021,6 +1038,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           userId: clientUserId,
           userEmail: clientEmail,
           userName: clientName,
+          feature: clientFeature,
         } = result.data;
 
         // End user id: client-supplied (per end user) or fall back to API key owner
@@ -1034,12 +1052,81 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const endUserName = clientName || user?.displayName || null;
 
         // Extract token counts from response.usage if present
-        const usage = resBody?.usage as
-          | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+        // Supports both Chat Completions format (response.usage) and
+        // Realtime API format (response.response.usage from response.done events)
+        const rawResponse = resBody as Record<string, unknown> | undefined;
+        const usage = (rawResponse?.usage ?? (rawResponse?.response as Record<string, unknown> | undefined)?.usage) as
+          | {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              total_tokens?: number;
+              input_tokens?: number;
+              output_tokens?: number;
+              prompt_tokens_details?: {
+                cached_tokens?: number;
+                text_tokens?: number;
+                audio_tokens?: number;
+                image_tokens?: number;
+              };
+              completion_tokens_details?: {
+                text_tokens?: number;
+                audio_tokens?: number;
+                reasoning_tokens?: number;
+              };
+              input_token_details?: {
+                cached_tokens?: number;
+                text_tokens?: number;
+                audio_tokens?: number;
+                image_tokens?: number;
+              };
+              output_token_details?: {
+                text_tokens?: number;
+                audio_tokens?: number;
+                reasoning_tokens?: number;
+              };
+            }
           | undefined;
-        const promptTokens = usage?.prompt_tokens ?? null;
-        const completionTokens = usage?.completion_tokens ?? null;
+
+        const promptTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? null;
+        const completionTokens = usage?.completion_tokens ?? usage?.output_tokens ?? null;
         const totalTokens = usage?.total_tokens ?? null;
+
+        // Extract granular input token details (Chat: prompt_tokens_details, Realtime: input_token_details)
+        const inputDetails = usage?.prompt_tokens_details ?? usage?.input_token_details;
+        const cachedInputTokens = inputDetails?.cached_tokens ?? null;
+        const textInputTokens = inputDetails?.text_tokens ?? null;
+        const audioInputTokens = inputDetails?.audio_tokens ?? null;
+        const imageInputTokens = inputDetails?.image_tokens ?? null;
+
+        // Extract granular output token details (Chat: completion_tokens_details, Realtime: output_token_details)
+        const outputDetails = usage?.completion_tokens_details ?? usage?.output_token_details;
+        const textOutputTokens = outputDetails?.text_tokens ?? null;
+        const audioOutputTokens = outputDetails?.audio_tokens ?? null;
+        const reasoningTokens = outputDetails?.reasoning_tokens ?? null;
+
+        // Calculate per-request cost using granular data when available
+        const inputTokens = promptTokens ?? 0;
+        const outputTokens = completionTokens ?? 0;
+        let requestCost: number | null = null;
+        if (inputTokens > 0 || outputTokens > 0) {
+          if (pricingStore && (textInputTokens !== null || audioInputTokens !== null || audioOutputTokens !== null)) {
+            requestCost = await pricingStore.calculateDetailedCost(model, {
+              inputTokens,
+              outputTokens,
+              cachedInputTokens: cachedInputTokens ?? undefined,
+              textInputTokens: textInputTokens ?? undefined,
+              audioInputTokens: audioInputTokens ?? undefined,
+              imageInputTokens: imageInputTokens ?? undefined,
+              textOutputTokens: textOutputTokens ?? undefined,
+              audioOutputTokens: audioOutputTokens ?? undefined,
+              reasoningTokens: reasoningTokens ?? undefined,
+            });
+          } else if (pricingStore) {
+            requestCost = await pricingStore.calculateCost(model, inputTokens, outputTokens);
+          } else {
+            requestCost = staticCalculateCost(model, inputTokens, outputTokens);
+          }
+        }
 
         const id = crypto.randomUUID();
         const log = await requestLogStore.create({
@@ -1050,19 +1137,26 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           endUserName,
           conversationId,
           model,
+          feature: clientFeature ?? null,
           requestBody: JSON.stringify(reqBody),
           responseBody: resBody ? JSON.stringify(resBody) : null,
           status: status ?? 'success',
           promptTokens,
           completionTokens,
           totalTokens,
+          cachedInputTokens,
+          textInputTokens,
+          audioInputTokens,
+          imageInputTokens,
+          textOutputTokens,
+          audioOutputTokens,
+          reasoningTokens,
+          costUsd: requestCost,
           latencyMs: latencyMs ?? null,
           createdAt: new Date(),
         });
 
         // Record usage so dashboard summary and charts show tokens/cost (stored under 'default' period key)
-        const inputTokens = promptTokens ?? 0;
-        const outputTokens = completionTokens ?? 0;
         if (inputTokens > 0 || outputTokens > 0) {
           await usageStore.updateUsage(endUserId, model, inputTokens, outputTokens, 'default');
         }

@@ -67,17 +67,59 @@ export interface ResponseDone extends BaseEvent {
       total_tokens: number;
       input_tokens: number;
       output_tokens: number;
+      // Realtime API format
       input_token_details?: {
         cached_tokens?: number;
         text_tokens?: number;
         audio_tokens?: number;
+        image_tokens?: number;
+        cached_tokens_details?: {
+          text_tokens?: number;
+          audio_tokens?: number;
+          image_tokens?: number;
+        };
       };
       output_token_details?: {
         text_tokens?: number;
         audio_tokens?: number;
+        reasoning_tokens?: number;
+      };
+      // Chat Completions API format
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      prompt_tokens_details?: {
+        cached_tokens?: number;
+        text_tokens?: number;
+        audio_tokens?: number;
+        image_tokens?: number;
+      };
+      completion_tokens_details?: {
+        text_tokens?: number;
+        audio_tokens?: number;
+        reasoning_tokens?: number;
+        accepted_prediction_tokens?: number;
+        rejected_prediction_tokens?: number;
       };
     };
   };
+}
+
+export interface ResponseFunctionCallArgumentsDelta extends BaseEvent {
+  type: 'response.function_call_arguments.delta';
+  response_id: string;
+  item_id: string;
+  output_index: number;
+  call_id: string;
+  delta: string;
+}
+
+export interface ResponseFunctionCallArgumentsDone extends BaseEvent {
+  type: 'response.function_call_arguments.done';
+  response_id: string;
+  item_id: string;
+  output_index: number;
+  call_id: string;
+  arguments: string;
 }
 
 export interface SessionCreated extends BaseEvent {
@@ -87,6 +129,16 @@ export interface SessionCreated extends BaseEvent {
     model: string;
     [key: string]: unknown;
   };
+}
+
+export interface RateLimitsUpdated extends BaseEvent {
+  type: 'rate_limits.updated';
+  rate_limits: Array<{
+    name: string;
+    limit: number;
+    remaining: number;
+    reset_seconds: number;
+  }>;
 }
 
 export type ClientEvent =
@@ -100,6 +152,9 @@ export type ServerEvent =
   | ResponseAudioTranscriptDelta
   | ResponseOutputTextDelta
   | ResponseOutputAudioTranscriptDelta
+  | ResponseFunctionCallArgumentsDelta
+  | ResponseFunctionCallArgumentsDone
   | ResponseDone
   | SessionCreated
+  | RateLimitsUpdated
   | BaseEvent;

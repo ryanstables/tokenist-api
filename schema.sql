@@ -66,12 +66,24 @@ CREATE TABLE IF NOT EXISTS request_logs (
   end_user_name TEXT,
   conversation_id TEXT NOT NULL,
   model TEXT NOT NULL,
+  feature TEXT,
   request_body TEXT NOT NULL,
   response_body TEXT,
   status TEXT NOT NULL DEFAULT 'success',
   prompt_tokens INTEGER,
   completion_tokens INTEGER,
   total_tokens INTEGER,
+  -- Granular input token breakdown
+  cached_input_tokens INTEGER,
+  text_input_tokens INTEGER,
+  audio_input_tokens INTEGER,
+  image_input_tokens INTEGER,
+  -- Granular output token breakdown
+  text_output_tokens INTEGER,
+  audio_output_tokens INTEGER,
+  reasoning_tokens INTEGER,
+  -- Per-request cost
+  cost_usd REAL,
   latency_ms REAL,
   created_at TEXT NOT NULL
 );
@@ -79,3 +91,37 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_end_user_id ON request_logs(end_user
 CREATE INDEX IF NOT EXISTS idx_request_logs_org_id ON request_logs(org_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_request_logs_conversation_id ON request_logs(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_feature ON request_logs(feature);
+
+-- Model registry
+CREATE TABLE IF NOT EXISTS models (
+  model_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  category TEXT NOT NULL, -- 'flagship', 'mini', 'reasoning', 'realtime', 'audio', 'image', 'embedding', 'legacy', 'other'
+  is_available INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Per-token-type pricing for each model
+CREATE TABLE IF NOT EXISTS model_pricing (
+  model_id TEXT NOT NULL,
+  token_type TEXT NOT NULL, -- 'text-input', 'text-output', 'cached-text-input', 'audio-input', 'audio-output'
+  processing_tier TEXT NOT NULL DEFAULT 'standard', -- 'standard', 'batch', 'flex', 'priority'
+  price_per_million REAL NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (model_id, token_type, processing_tier),
+  FOREIGN KEY (model_id) REFERENCES models(model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_pricing_model_id ON model_pricing(model_id);
+
+-- Aliases map date-suffixed or variant model IDs to their canonical model_id
+CREATE TABLE IF NOT EXISTS model_aliases (
+  alias TEXT PRIMARY KEY,
+  model_id TEXT NOT NULL,
+  FOREIGN KEY (model_id) REFERENCES models(model_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_aliases_model_id ON model_aliases(model_id);

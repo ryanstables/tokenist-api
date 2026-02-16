@@ -10,8 +10,13 @@ import type {
   RequestLogStore,
   StoredRequestLog,
   OrgLogEndUser,
+  PricingStore,
+  ModelRecord,
+  ModelTokenPricing,
+  ModelPricing,
+  DetailedTokenUsage,
 } from './interfaces';
-import { calculateCost } from '../usage/pricing';
+import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
 interface StoredEndUserData {
   usage: EndUserUsage;
@@ -21,6 +26,7 @@ interface StoredEndUserData {
 export interface InMemoryStoreOptions {
   defaultMaxCostUsd?: number;
   defaultMaxTotalTokens?: number;
+  pricingStore?: PricingStore;
 }
 
 export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): UsageStore {
@@ -50,7 +56,9 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       const newInputTokens = currentUsage.inputTokens + inputTokens;
       const newOutputTokens = currentUsage.outputTokens + outputTokens;
       const newTotalTokens = newInputTokens + newOutputTokens;
-      const newCost = calculateCost(model, newInputTokens, newOutputTokens);
+      const newCost = options.pricingStore
+        ? await options.pricingStore.calculateCost(model, newInputTokens, newOutputTokens)
+        : staticCalculateCost(model, newInputTokens, newOutputTokens);
 
       const newUsage: EndUserUsage = {
         inputTokens: newInputTokens,
@@ -325,6 +333,90 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
 
     async getById(id: string): Promise<StoredRequestLog | undefined> {
       return logs.find((l) => l.id === id);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// In-memory PricingStore (wraps the static PRICING data from pricing.ts)
+// ---------------------------------------------------------------------------
+
+import { getPricing as staticGetPricing } from '../usage/pricing';
+
+const DATE_SUFFIX_RE = /-\d{4}-\d{2}-\d{2}$/;
+
+export function createInMemoryPricingStore(): PricingStore {
+  return {
+    async resolveModelId(model: string): Promise<string> {
+      // Strip date suffix for in-memory store
+      return model.replace(DATE_SUFFIX_RE, '');
+    },
+
+    async getModelTokenTypes(modelId: string, processingTier = 'standard'): Promise<ModelTokenPricing[]> {
+      const resolved = await this.resolveModelId(modelId);
+      const pricing = staticGetPricing(resolved);
+      const types: ModelTokenPricing[] = [];
+      if (pricing.inputPer1K > 0) {
+        types.push({ modelId: resolved, tokenType: 'text-input', processingTier, pricePerMillion: pricing.inputPer1K * 1000 });
+      }
+      if (pricing.outputPer1K > 0) {
+        types.push({ modelId: resolved, tokenType: 'text-output', processingTier, pricePerMillion: pricing.outputPer1K * 1000 });
+      }
+      if (pricing.cachedInputPer1K !== undefined) {
+        types.push({ modelId: resolved, tokenType: 'cached-text-input', processingTier, pricePerMillion: pricing.cachedInputPer1K * 1000 });
+      }
+      if (pricing.audioPer1K !== undefined) {
+        types.push({ modelId: resolved, tokenType: 'audio-output', processingTier, pricePerMillion: pricing.audioPer1K * 1000 });
+      }
+      return types;
+    },
+
+    async getPricing(model: string, _processingTier?: string): Promise<ModelPricing> {
+      const resolved = await this.resolveModelId(model);
+      return staticGetPricing(resolved);
+    },
+
+    async calculateCost(model: string, inputTokens: number, outputTokens: number, _processingTier?: string): Promise<number> {
+      const resolved = await this.resolveModelId(model);
+      return staticCalculateCost(resolved, inputTokens, outputTokens);
+    },
+
+    async calculateDetailedCost(model: string, usage: DetailedTokenUsage, _processingTier?: string): Promise<number> {
+      const resolved = await this.resolveModelId(model);
+      const pricing = staticGetPricing(resolved);
+      let cost = 0;
+
+      if (usage.cachedInputTokens && pricing.cachedInputPer1K) {
+        cost += (usage.cachedInputTokens / 1000) * pricing.cachedInputPer1K;
+        const nonCachedTextInput = (usage.textInputTokens ?? 0) - (usage.cachedInputTokens ?? 0);
+        if (nonCachedTextInput > 0) {
+          cost += (nonCachedTextInput / 1000) * pricing.inputPer1K;
+        }
+      } else if (usage.textInputTokens !== undefined) {
+        cost += (usage.textInputTokens / 1000) * pricing.inputPer1K;
+      } else {
+        cost += (usage.inputTokens / 1000) * pricing.inputPer1K;
+      }
+
+      if (usage.textOutputTokens !== undefined) {
+        cost += (usage.textOutputTokens / 1000) * pricing.outputPer1K;
+      } else {
+        cost += (usage.outputTokens / 1000) * pricing.outputPer1K;
+      }
+
+      if (usage.audioOutputTokens && pricing.audioPer1K) {
+        cost += (usage.audioOutputTokens / 1000) * pricing.audioPer1K;
+      }
+
+      return cost;
+    },
+
+    async listModels(): Promise<ModelRecord[]> {
+      return [];
+    },
+
+    async listModelsByCategory(_category: string): Promise<ModelRecord[]> {
+      return [];
     },
   };
 }

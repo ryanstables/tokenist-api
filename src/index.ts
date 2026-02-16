@@ -18,6 +18,10 @@ export type {
   StoredApiKey,
   RequestLogStore,
   StoredRequestLog,
+  PricingStore,
+  ModelRecord,
+  ModelTokenPricing,
+  DetailedTokenUsage,
 } from './storage/interfaces';
 export type {
   UsageWindow,
@@ -40,13 +44,16 @@ export type {
   ResponseOutputTextDelta,
   ResponseOutputAudioTranscriptDelta,
   ResponseDone,
+  ResponseFunctionCallArgumentsDelta,
+  ResponseFunctionCallArgumentsDone,
   SessionCreated,
+  RateLimitsUpdated,
 } from './types/events';
 export type { JWTPayload } from './auth/jwt';
 export type { RelayContext, RelayHooks } from './proxy/relay';
 export type { ThresholdCheck } from './guardrails/policy';
 export type { ExtractIdentityResult, IdentityResult, IdentityError } from './guardrails/identity';
-export type { TokenEstimate, ResponseUsage } from './usage/estimator';
+export type { TokenEstimate, TokenDetails, ResponseUsage } from './usage/estimator';
 export type { ModelPricing } from './usage/pricing';
 
 // Re-export implementations
@@ -57,6 +64,7 @@ export {
   createInMemoryUserStore,
   createInMemoryApiKeyStore,
   createInMemoryRequestLogStore,
+  createInMemoryPricingStore,
 } from './storage/memory';
 export {
   createD1UsageStore,
@@ -64,6 +72,7 @@ export {
   createD1UserStore,
   createD1ApiKeyStore,
   createD1RequestLogStore,
+  createD1PricingStore,
 } from './storage/d1';
 export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
@@ -85,7 +94,7 @@ export interface TokenistInstance {
 
 export function createTokenist(config: TokenistConfig): TokenistInstance {
   const logger = config.logger ?? createLogger(config.logLevel ?? 'info');
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore } = config;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore } = config;
 
   // Build admin/API routes
   const adminApp = createAdminRoutes({
@@ -94,6 +103,7 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
     userStore,
     apiKeyStore,
     requestLogStore,
+    pricingStore,
     logger,
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,

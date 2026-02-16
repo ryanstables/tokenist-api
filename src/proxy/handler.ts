@@ -46,6 +46,9 @@ export async function handleWebSocketUpgrade(
     const conversationId =
       request.headers.get('x-conversation-id')?.trim() || crypto.randomUUID();
 
+    // Optional feature/product identifier
+    const feature = request.headers.get('x-feature')?.trim() || undefined;
+
     // Determine API key: client Bearer token or server-side key
     const authHeader = request.headers.get('authorization');
     const bearerToken = authHeader?.startsWith('Bearer ')
@@ -89,7 +92,7 @@ export async function handleWebSocketUpgrade(
         setupRelay(
           serverSocket,
           upstream,
-          { connectionId, endUserId, orgId, email, name, conversationId, model },
+          { connectionId, endUserId, orgId, email, name, conversationId, model, feature },
           usageStore,
           logger,
           relayHooks

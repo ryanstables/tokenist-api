@@ -133,10 +133,20 @@ export function estimateUpstreamMessageTokens(data: string): TokenEstimate {
   }
 }
 
+export interface TokenDetails {
+  textTokens?: number;
+  audioTokens?: number;
+  cachedTokens?: number;
+  imageTokens?: number;
+  reasoningTokens?: number;
+}
+
 export interface ResponseUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  inputTokenDetails?: TokenDetails;
+  outputTokenDetails?: TokenDetails;
 }
 
 export function extractResponseUsage(data: string): ResponseUsage | null {
@@ -145,12 +155,36 @@ export function extractResponseUsage(data: string): ResponseUsage | null {
 
     if (event.type === 'response.done') {
       const doneEvent = event as ResponseDone;
-      if (doneEvent.response?.usage) {
-        return {
-          inputTokens: doneEvent.response.usage.input_tokens,
-          outputTokens: doneEvent.response.usage.output_tokens,
-          totalTokens: doneEvent.response.usage.total_tokens,
+      const usage = doneEvent.response?.usage;
+      if (usage) {
+        const result: ResponseUsage = {
+          inputTokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
+          outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
+          totalTokens: usage.total_tokens ?? 0,
         };
+
+        // Extract input token details (Realtime: input_token_details, Chat: prompt_tokens_details)
+        const inputDetails = usage.input_token_details ?? usage.prompt_tokens_details;
+        if (inputDetails) {
+          result.inputTokenDetails = {
+            textTokens: inputDetails.text_tokens,
+            audioTokens: inputDetails.audio_tokens,
+            cachedTokens: inputDetails.cached_tokens,
+            imageTokens: inputDetails.image_tokens,
+          };
+        }
+
+        // Extract output token details (Realtime: output_token_details, Chat: completion_tokens_details)
+        const outputDetails = usage.output_token_details ?? usage.completion_tokens_details;
+        if (outputDetails) {
+          result.outputTokenDetails = {
+            textTokens: outputDetails.text_tokens,
+            audioTokens: outputDetails.audio_tokens,
+            reasoningTokens: outputDetails.reasoning_tokens,
+          };
+        }
+
+        return result;
       }
     }
 
