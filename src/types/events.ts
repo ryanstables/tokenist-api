@@ -47,17 +47,6 @@ export interface ResponseAudioTranscriptDelta extends BaseEvent {
   delta: string;
 }
 
-// Server → Client events (GA API names)
-export interface ResponseOutputTextDelta extends BaseEvent {
-  type: 'response.output_text.delta';
-  delta: string;
-}
-
-export interface ResponseOutputAudioTranscriptDelta extends BaseEvent {
-  type: 'response.output_audio_transcript.delta';
-  delta: string;
-}
-
 export interface ResponseDone extends BaseEvent {
   type: 'response.done';
   response: {
@@ -150,8 +139,6 @@ export type ClientEvent =
 export type ServerEvent =
   | ResponseTextDelta
   | ResponseAudioTranscriptDelta
-  | ResponseOutputTextDelta
-  | ResponseOutputAudioTranscriptDelta
   | ResponseFunctionCallArgumentsDelta
   | ResponseFunctionCallArgumentsDone
   | ResponseDone

@@ -41,8 +41,6 @@ export type {
   ResponseCreate,
   ResponseTextDelta,
   ResponseAudioTranscriptDelta,
-  ResponseOutputTextDelta,
-  ResponseOutputAudioTranscriptDelta,
   ResponseDone,
   ResponseFunctionCallArgumentsDelta,
   ResponseFunctionCallArgumentsDone,
@@ -76,7 +74,7 @@ export {
 } from './storage/d1';
 export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
-export { getPricing, calculateCost } from './usage/pricing';
+export { getPricing, calculateCost, calculateDetailedCost } from './usage/pricing';
 export {
   countTokens,
   estimateClientMessageTokens,
@@ -125,6 +123,7 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
       blocklist,
       openaiApiKey: config.openaiApiKey,
       logger,
+      pricingStore,
     });
   });
 

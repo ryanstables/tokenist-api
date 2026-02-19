@@ -1,9 +1,10 @@
 import type { Logger } from '../logger';
-import type { UsageStore } from '../storage/interfaces';
+import type { UsageStore, PricingStore, DetailedTokenUsage } from '../storage/interfaces';
 import {
   estimateUpstreamMessageTokens,
   extractResponseUsage,
 } from '../usage/estimator';
+import { calculateDetailedCost as staticCalculateDetailedCost } from '../usage/pricing';
 import { checkThreshold } from '../guardrails/policy';
 
 export interface RelayContext {
@@ -30,7 +31,8 @@ export function setupRelay(
   context: RelayContext,
   store: UsageStore,
   logger: Logger,
-  hooks: RelayHooks = {}
+  hooks: RelayHooks = {},
+  pricingStore?: PricingStore
 ): void {
   const relayLogger = logger.child({
     component: 'relay',
@@ -73,12 +75,33 @@ export function setupRelay(
         'OpenAI usage received (response.done)'
       );
       if (actualUsage.inputTokens > 0 || actualUsage.outputTokens > 0) {
+        // Calculate per-request cost when granular token details are available
+        let requestCost: number | undefined;
+        const hasDetails = actualUsage.inputTokenDetails || actualUsage.outputTokenDetails;
+        if (hasDetails) {
+          const detailedUsage: DetailedTokenUsage = {
+            inputTokens: actualUsage.inputTokens,
+            outputTokens: actualUsage.outputTokens,
+            cachedInputTokens: actualUsage.inputTokenDetails?.cachedTokens,
+            textInputTokens: actualUsage.inputTokenDetails?.textTokens,
+            audioInputTokens: actualUsage.inputTokenDetails?.audioTokens,
+            imageInputTokens: actualUsage.inputTokenDetails?.imageTokens,
+            textOutputTokens: actualUsage.outputTokenDetails?.textTokens,
+            audioOutputTokens: actualUsage.outputTokenDetails?.audioTokens,
+            reasoningTokens: actualUsage.outputTokenDetails?.reasoningTokens,
+          };
+          requestCost = pricingStore
+            ? await pricingStore.calculateDetailedCost(context.model, detailedUsage)
+            : staticCalculateDetailedCost(context.model, detailedUsage);
+        }
+
         const usage = await store.updateUsage(
           context.endUserId,
           context.model,
           actualUsage.inputTokens,
           actualUsage.outputTokens,
-          context.periodKey
+          context.periodKey,
+          requestCost
         );
         const thresholdCheck = await checkThreshold(store, context.endUserId, usage);
         if (thresholdCheck.exceeded) {

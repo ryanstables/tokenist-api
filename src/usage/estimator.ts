@@ -6,8 +6,6 @@ import {
   ResponseCreate,
   ResponseTextDelta,
   ResponseAudioTranscriptDelta,
-  ResponseOutputTextDelta,
-  ResponseOutputAudioTranscriptDelta,
   ResponseDone,
 } from '../types/events';
 
@@ -91,23 +89,6 @@ export function estimateUpstreamMessageTokens(data: string): TokenEstimate {
 
       case 'response.audio_transcript.delta': {
         const delta = (event as ResponseAudioTranscriptDelta).delta;
-        if (delta) {
-          outputTokens += countTokens(delta);
-        }
-        break;
-      }
-
-      // GA API event names
-      case 'response.output_text.delta': {
-        const delta = (event as ResponseOutputTextDelta).delta;
-        if (delta) {
-          outputTokens += countTokens(delta);
-        }
-        break;
-      }
-
-      case 'response.output_audio_transcript.delta': {
-        const delta = (event as ResponseOutputAudioTranscriptDelta).delta;
         if (delta) {
           outputTokens += countTokens(delta);
         }

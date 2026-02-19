@@ -53,7 +53,8 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
       model: string,
       inputTokens: number,
       outputTokens: number,
-      periodKey = 'default'
+      periodKey = 'default',
+      requestCost?: number
     ): Promise<EndUserUsage> {
       const existing = await db
         .prepare('SELECT * FROM usage WHERE end_user_id = ? AND period_key = ?')
@@ -61,14 +62,17 @@ export function createD1UsageStore(db: D1Database, options: D1StoreOptions = {})
         .first<{
           input_tokens: number;
           output_tokens: number;
+          cost_usd: number;
         }>();
 
       const newInput = (existing?.input_tokens ?? 0) + inputTokens;
       const newOutput = (existing?.output_tokens ?? 0) + outputTokens;
       const newTotal = newInput + newOutput;
-      const newCost = options.pricingStore
-        ? await options.pricingStore.calculateCost(model, newInput, newOutput)
-        : fallbackCalculateCost(model, newInput, newOutput);
+      const newCost = requestCost !== undefined
+        ? (existing?.cost_usd ?? 0) + requestCost
+        : options.pricingStore
+          ? await options.pricingStore.calculateCost(model, newInput, newOutput)
+          : fallbackCalculateCost(model, newInput, newOutput);
       const now = new Date().toISOString();
 
       await db

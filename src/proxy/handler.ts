@@ -1,5 +1,5 @@
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist } from '../storage/interfaces';
+import type { UsageStore, Blocklist, PricingStore } from '../storage/interfaces';
 import { extractIdentity } from '../guardrails/identity';
 import { checkThreshold } from '../guardrails/policy';
 import { connectToUpstream } from './upstream';
@@ -13,13 +13,14 @@ export interface WebSocketHandlerDeps {
   openaiApiKey: string;
   logger: Logger;
   relayHooks?: RelayHooks;
+  pricingStore?: PricingStore;
 }
 
 export async function handleWebSocketUpgrade(
   request: Request,
   deps: WebSocketHandlerDeps
 ): Promise<Response> {
-  const { usageStore, blocklist, openaiApiKey, logger, relayHooks } = deps;
+  const { usageStore, blocklist, openaiApiKey, logger, relayHooks, pricingStore } = deps;
   const connectionId = crypto.randomUUID();
   const connLogger = logger.child({ component: 'connection', connectionId });
 
@@ -95,7 +96,8 @@ export async function handleWebSocketUpgrade(
           { connectionId, endUserId, orgId, email, name, conversationId, model, feature },
           usageStore,
           logger,
-          relayHooks
+          relayHooks,
+          pricingStore
         );
       })
       .catch((err) => {

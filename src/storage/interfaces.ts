@@ -14,7 +14,8 @@ export interface UsageStore {
     model: string,
     inputTokens: number,
     outputTokens: number,
-    periodKey?: string
+    periodKey?: string,
+    requestCost?: number
   ): Promise<EndUserUsage>;
   getThreshold(endUserId: string): Promise<EndUserThreshold>;
   setThreshold(endUserId: string, threshold: EndUserThreshold): Promise<void>;

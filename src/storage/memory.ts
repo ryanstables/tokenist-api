@@ -42,7 +42,8 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       model: string,
       inputTokens: number,
       outputTokens: number,
-      _periodKey?: string
+      _periodKey?: string,
+      requestCost?: number
     ): Promise<EndUserUsage> {
       const existing = cache.get(endUserId);
       const currentUsage = existing?.usage || {
@@ -56,9 +57,11 @@ export function createInMemoryUsageStore(options: InMemoryStoreOptions = {}): Us
       const newInputTokens = currentUsage.inputTokens + inputTokens;
       const newOutputTokens = currentUsage.outputTokens + outputTokens;
       const newTotalTokens = newInputTokens + newOutputTokens;
-      const newCost = options.pricingStore
-        ? await options.pricingStore.calculateCost(model, newInputTokens, newOutputTokens)
-        : staticCalculateCost(model, newInputTokens, newOutputTokens);
+      const newCost = requestCost !== undefined
+        ? currentUsage.costUsd + requestCost
+        : options.pricingStore
+          ? await options.pricingStore.calculateCost(model, newInputTokens, newOutputTokens)
+          : staticCalculateCost(model, newInputTokens, newOutputTokens);
 
       const newUsage: EndUserUsage = {
         inputTokens: newInputTokens,
@@ -365,6 +368,9 @@ export function createInMemoryPricingStore(): PricingStore {
       if (pricing.cachedInputPer1K !== undefined) {
         types.push({ modelId: resolved, tokenType: 'cached-text-input', processingTier, pricePerMillion: pricing.cachedInputPer1K * 1000 });
       }
+      if (pricing.audioInputPer1K !== undefined) {
+        types.push({ modelId: resolved, tokenType: 'audio-input', processingTier, pricePerMillion: pricing.audioInputPer1K * 1000 });
+      }
       if (pricing.audioPer1K !== undefined) {
         types.push({ modelId: resolved, tokenType: 'audio-output', processingTier, pricePerMillion: pricing.audioPer1K * 1000 });
       }
@@ -396,6 +402,10 @@ export function createInMemoryPricingStore(): PricingStore {
         cost += (usage.textInputTokens / 1000) * pricing.inputPer1K;
       } else {
         cost += (usage.inputTokens / 1000) * pricing.inputPer1K;
+      }
+
+      if (usage.audioInputTokens && pricing.audioInputPer1K) {
+        cost += (usage.audioInputTokens / 1000) * pricing.audioInputPer1K;
       }
 
       if (usage.textOutputTokens !== undefined) {

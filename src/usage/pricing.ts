@@ -2,8 +2,8 @@
 // This module retains the static pricing lookup as a fallback.
 // The primary pricing source is now the database via PricingStore.
 
-export type { ModelPricing } from '../storage/interfaces';
-import type { ModelPricing } from '../storage/interfaces';
+export type { ModelPricing, DetailedTokenUsage } from '../storage/interfaces';
+import type { ModelPricing, DetailedTokenUsage } from '../storage/interfaces';
 
 // Helper: price per 1M → per 1K
 const per1K = (per1M: number) => per1M / 1000;
@@ -44,32 +44,36 @@ const PRICING: Record<string, ModelPricing> = {
     inputPer1K: per1K(4),
     outputPer1K: per1K(16),
     cachedInputPer1K: per1K(0.4),
-    audioPer1K: per1K(64), // audio output per 1M
+    audioInputPer1K: per1K(32),
+    audioPer1K: per1K(64),
   },
   'gpt-realtime-mini': {
     inputPer1K: per1K(0.6),
     outputPer1K: per1K(2.4),
     cachedInputPer1K: per1K(0.06),
+    audioInputPer1K: per1K(10),
     audioPer1K: per1K(20),
   },
   'gpt-4o-realtime-preview': {
     inputPer1K: per1K(5),
     outputPer1K: per1K(20),
     cachedInputPer1K: per1K(2.5),
-    audioPer1K: per1K(80),
+    audioInputPer1K: per1K(100),
+    audioPer1K: per1K(200),
   },
   'gpt-4o-mini-realtime-preview': {
     inputPer1K: per1K(0.6),
     outputPer1K: per1K(2.4),
     cachedInputPer1K: per1K(0.3),
+    audioInputPer1K: per1K(10),
     audioPer1K: per1K(20),
   },
 
   // Audio
-  'gpt-audio': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioPer1K: per1K(64) },
-  'gpt-audio-mini': { inputPer1K: per1K(0.6), outputPer1K: per1K(2.4), audioPer1K: per1K(20) },
-  'gpt-4o-audio-preview': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioPer1K: per1K(80) },
-  'gpt-4o-mini-audio-preview': { inputPer1K: per1K(0.15), outputPer1K: per1K(0.6), audioPer1K: per1K(20) },
+  'gpt-audio': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioInputPer1K: per1K(100), audioPer1K: per1K(200) },
+  'gpt-audio-mini': { inputPer1K: per1K(0.6), outputPer1K: per1K(2.4), audioInputPer1K: per1K(10), audioPer1K: per1K(20) },
+  'gpt-4o-audio-preview': { inputPer1K: per1K(2.5), outputPer1K: per1K(10), audioInputPer1K: per1K(100), audioPer1K: per1K(200) },
+  'gpt-4o-mini-audio-preview': { inputPer1K: per1K(0.15), outputPer1K: per1K(0.6), audioInputPer1K: per1K(10), audioPer1K: per1K(20) },
 
   // O-series
   'o1': { inputPer1K: per1K(15), outputPer1K: per1K(60), cachedInputPer1K: per1K(7.5) },
@@ -140,4 +144,45 @@ export function calculateCost(
   const inputCost = (inputTokens / 1000) * pricing.inputPer1K;
   const outputCost = (outputTokens / 1000) * pricing.outputPer1K;
   return inputCost + outputCost;
+}
+
+/**
+ * Static detailed cost calculation (fallback when PricingStore is not available).
+ * Uses granular token breakdowns (audio, cached, text) for accurate pricing.
+ * Prefer using PricingStore.calculateDetailedCost() for database-backed pricing.
+ */
+export function calculateDetailedCost(
+  model: string,
+  usage: DetailedTokenUsage
+): number {
+  const pricing = getPricing(model);
+  let cost = 0;
+
+  if (usage.cachedInputTokens && pricing.cachedInputPer1K) {
+    cost += (usage.cachedInputTokens / 1000) * pricing.cachedInputPer1K;
+    const nonCachedTextInput = (usage.textInputTokens ?? 0) - (usage.cachedInputTokens ?? 0);
+    if (nonCachedTextInput > 0) {
+      cost += (nonCachedTextInput / 1000) * pricing.inputPer1K;
+    }
+  } else if (usage.textInputTokens !== undefined) {
+    cost += (usage.textInputTokens / 1000) * pricing.inputPer1K;
+  } else {
+    cost += (usage.inputTokens / 1000) * pricing.inputPer1K;
+  }
+
+  if (usage.audioInputTokens && pricing.audioInputPer1K) {
+    cost += (usage.audioInputTokens / 1000) * pricing.audioInputPer1K;
+  }
+
+  if (usage.textOutputTokens !== undefined) {
+    cost += (usage.textOutputTokens / 1000) * pricing.outputPer1K;
+  } else {
+    cost += (usage.outputTokens / 1000) * pricing.outputPer1K;
+  }
+
+  if (usage.audioOutputTokens && pricing.audioPer1K) {
+    cost += (usage.audioOutputTokens / 1000) * pricing.audioPer1K;
+  }
+
+  return cost;
 }
