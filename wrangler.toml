@@ -12,3 +12,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "tokenist-db"
 database_id = "35cd56dc-0bd6-4238-a166-21083de2a993"
+
+[[routes]]
+pattern = "api.tokenist.dev"
+custom_domain = true
