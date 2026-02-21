@@ -1,9 +1,12 @@
 import { HttpClient } from "../http";
 import type {
   EndUserRecord,
-  EndUserUsage,
+  ListUsersResponse,
+  UserDetailsResponse,
   BlockEntry,
   BlockUserRequest,
+  ListBlockedResponse,
+  ListOrgBlockedResponse,
   SetThresholdRequest,
   OrgSummary,
   OrgSummaryOptions,
@@ -15,12 +18,18 @@ import type {
   CreatePolicyRequest,
   UpdatePolicyRequest,
   Rule,
+  ListRulesResponse,
   CreateRuleRequest,
   UpdateRuleRequest,
   ListRulesOptions,
   RuleHistoryEntry,
+  ListRuleHistoryResponse,
   RuleTrigger,
+  ListRuleTriggersResponse,
 } from "../types";
+
+// Re-export so consumers can import from the resource directly if needed.
+export type { EndUserRecord };
 
 /**
  * Admin endpoints for user management, org analytics, logs, policies, and rules.
@@ -35,16 +44,17 @@ export class AdminResource {
 
   /**
    * List all end users with their current usage data.
+   * Returns `{ users: EndUserRecord[] }`.
    */
-  listUsers(): Promise<EndUserRecord[]> {
-    return this.http.get<EndUserRecord[]>("/admin/users");
+  listUsers(): Promise<ListUsersResponse> {
+    return this.http.get<ListUsersResponse>("/admin/users");
   }
 
   /**
-   * Get detailed usage for a specific end user.
+   * Get detailed usage, threshold, and block status for a specific end user.
    */
-  getUserUsage(userId: string): Promise<EndUserUsage> {
-    return this.http.get<EndUserUsage>(
+  getUserUsage(userId: string): Promise<UserDetailsResponse> {
+    return this.http.get<UserDetailsResponse>(
       `/admin/users/${encodeURIComponent(userId)}/usage`
     );
   }
@@ -84,9 +94,10 @@ export class AdminResource {
 
   /**
    * List all currently blocked end users.
+   * Returns `{ blocked: BlockEntry[] }`.
    */
-  listBlocked(): Promise<BlockEntry[]> {
-    return this.http.get<BlockEntry[]>("/admin/blocked");
+  listBlocked(): Promise<ListBlockedResponse> {
+    return this.http.get<ListBlockedResponse>("/admin/blocked");
   }
 
   // ─── Orgs ──────────────────────────────────────────────────────────────────
@@ -105,7 +116,8 @@ export class AdminResource {
   }
 
   /**
-   * List all end users belonging to an organisation.
+   * List end users that appear in an organisation's request logs.
+   * Returns `[{ id, displayName, email }]`.
    */
   listOrgUsers(orgId: string): Promise<OrgEndUser[]> {
     return this.http.get<OrgEndUser[]>(
@@ -115,9 +127,10 @@ export class AdminResource {
 
   /**
    * List blocked users within an organisation.
+   * Returns `{ blocked: BlockEntry[], count: number }`.
    */
-  listOrgBlocked(orgId: string): Promise<BlockEntry[]> {
-    return this.http.get<BlockEntry[]>(
+  listOrgBlocked(orgId: string): Promise<ListOrgBlockedResponse> {
+    return this.http.get<ListOrgBlockedResponse>(
       `/admin/orgs/${encodeURIComponent(orgId)}/blocked`
     );
   }
@@ -176,6 +189,7 @@ export class AdminResource {
 
   /**
    * Create a new policy within an organisation.
+   * Both `name` and `description` are required by the API.
    */
   createPolicy(orgId: string, data: CreatePolicyRequest): Promise<Policy> {
     return this.http.post<Policy>(
@@ -211,9 +225,10 @@ export class AdminResource {
 
   /**
    * List rules for an organisation, with optional filters.
+   * Returns `{ rules: Rule[], total: number }`.
    */
-  listRules(orgId: string, opts?: ListRulesOptions): Promise<Rule[]> {
-    return this.http.get<Rule[]>(
+  listRules(orgId: string, opts?: ListRulesOptions): Promise<ListRulesResponse> {
+    return this.http.get<ListRulesResponse>(
       `/admin/orgs/${encodeURIComponent(orgId)}/rules`,
       {
         subjectType: opts?.subjectType,
@@ -257,11 +272,17 @@ export class AdminResource {
   }
 
   /**
-   * Toggle a rule on or off.
+   * Enable or disable a rule.
+   *
+   * @param enabled  Pass `true` to enable, `false` to disable.
+   *
+   * The API requires `{ enabled }` in the request body and returns 400 if it
+   * is absent.
    */
-  toggleRule(orgId: string, ruleId: string): Promise<Rule> {
+  toggleRule(orgId: string, ruleId: string, enabled: boolean): Promise<Rule> {
     return this.http.patch<Rule>(
-      `/admin/orgs/${encodeURIComponent(orgId)}/rules/${encodeURIComponent(ruleId)}/toggle`
+      `/admin/orgs/${encodeURIComponent(orgId)}/rules/${encodeURIComponent(ruleId)}/toggle`,
+      { enabled }
     );
   }
 
@@ -276,18 +297,20 @@ export class AdminResource {
 
   /**
    * Get the change history for a rule.
+   * Returns `{ entries: RuleHistoryEntry[], total: number }`.
    */
-  getRuleHistory(orgId: string, ruleId: string): Promise<RuleHistoryEntry[]> {
-    return this.http.get<RuleHistoryEntry[]>(
+  getRuleHistory(orgId: string, ruleId: string): Promise<ListRuleHistoryResponse> {
+    return this.http.get<ListRuleHistoryResponse>(
       `/admin/orgs/${encodeURIComponent(orgId)}/rules/${encodeURIComponent(ruleId)}/history`
     );
   }
 
   /**
    * Get the trigger events for a rule.
+   * Returns `{ events: RuleTrigger[], total: number }`.
    */
-  getRuleTriggers(orgId: string, ruleId: string): Promise<RuleTrigger[]> {
-    return this.http.get<RuleTrigger[]>(
+  getRuleTriggers(orgId: string, ruleId: string): Promise<ListRuleTriggersResponse> {
+    return this.http.get<ListRuleTriggersResponse>(
       `/admin/orgs/${encodeURIComponent(orgId)}/rules/${encodeURIComponent(ruleId)}/triggers`
     );
   }

@@ -1,5 +1,6 @@
 import { TokenistClient } from "../src/client";
 import { mockFetch, expectFetchCall } from "./helpers";
+import type { SdkRecordRequest } from "../src/types";
 
 const BASE_URL = "https://tokenist.example.com";
 const API_KEY = "ug_test_key";
@@ -18,9 +19,10 @@ describe("sdk resource", () => {
   describe("check()", () => {
     it("POSTs to /sdk/check with the request payload", async () => {
       const client = makeClient();
+      // API returns { tokens, costUsd } — NOT the EndUserUsage shape
       const checkResponse = {
         allowed: true,
-        usage: { inputTokens: 500, outputTokens: 0, totalTokens: 500, costUsd: 0.05, lastUpdated: "2024-01-01" },
+        usage: { tokens: 500, costUsd: 0.05 },
         remaining: { tokens: 49500, costUsd: 9.95 },
       };
       const spy = mockFetch({ body: checkResponse });
@@ -45,16 +47,19 @@ describe("sdk resource", () => {
         authHeader: `Bearer ${API_KEY}`,
       });
       expect(result.allowed).toBe(true);
-      expect(result.remaining.tokens).toBe(49500);
+      // API returns `tokens` (not `totalTokens`)
+      expect(result.usage.tokens).toBe(500);
+      expect(result.usage.costUsd).toBe(0.05);
+      expect(result.remaining?.tokens).toBe(49500);
     });
 
-    it("returns allowed:false when user is blocked", async () => {
+    it("returns allowed:false with a reason when user is blocked", async () => {
       const client = makeClient();
       mockFetch({
         body: {
           allowed: false,
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0, lastUpdated: "2024-01-01" },
-          remaining: { tokens: 0, costUsd: 0 },
+          reason: "User is blocked: spam",
+          usage: { tokens: 0, costUsd: 0 },
         },
       });
 
@@ -65,6 +70,8 @@ describe("sdk resource", () => {
       });
 
       expect(result.allowed).toBe(false);
+      // `reason` field is present on denied responses
+      expect(result.reason).toBe("User is blocked: spam");
     });
 
     it("works without optional fields", async () => {
@@ -72,7 +79,7 @@ describe("sdk resource", () => {
       const spy = mockFetch({
         body: {
           allowed: true,
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0, lastUpdated: "2024-01-01" },
+          usage: { tokens: 0, costUsd: 0 },
           remaining: { tokens: 50000, costUsd: 10 },
         },
       });
@@ -90,7 +97,7 @@ describe("sdk resource", () => {
   // ─── record ───────────────────────────────────────────────────────────────
 
   describe("record()", () => {
-    it("POSTs to /sdk/record with usage data", async () => {
+    it("POSTs to /sdk/record with usage data including latencyMs", async () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
@@ -111,6 +118,7 @@ describe("sdk resource", () => {
           userId: "user-123",
           inputTokens: 500,
           outputTokens: 1200,
+          latencyMs: 2300,
           success: true,
         },
       });
@@ -126,12 +134,27 @@ describe("sdk resource", () => {
         requestType: "chat",
         inputTokens: 100,
         outputTokens: 0,
+        latencyMs: 0,
         success: false,
       });
 
       const [, options] = spy.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(options.body as string);
       expect(body.success).toBe(false);
+    });
+
+    it("latencyMs is required — omitting it is a compile-time error", () => {
+      // The API schema has latencyMs: z.number().nonnegative() (no .optional()).
+      // @ts-expect-error latencyMs must be required on SdkRecordRequest
+      const req: SdkRecordRequest = {
+        userId: "u1",
+        model: "gpt-4o",
+        requestType: "chat",
+        inputTokens: 100,
+        outputTokens: 0,
+        success: false,
+      };
+      expect(req).toBeDefined();
     });
   });
 

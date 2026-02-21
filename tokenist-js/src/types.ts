@@ -26,7 +26,7 @@ export interface EndUserUsage {
   outputTokens: number;
   totalTokens: number;
   costUsd: number;
-  lastUpdated: string;
+  lastUpdated: string | null;
 }
 
 export interface EndUserThreshold {
@@ -37,11 +37,23 @@ export interface EndUserThreshold {
 // ─── Admin – Users ───────────────────────────────────────────────────────────
 
 export interface EndUserRecord {
-  endUserId: string;
-  orgId?: string;
+  /** The API returns `userId`, not `endUserId`. */
+  userId: string;
   usage: EndUserUsage;
   threshold: EndUserThreshold;
   blocked: boolean;
+}
+
+export interface ListUsersResponse {
+  users: EndUserRecord[];
+}
+
+export interface UserDetailsResponse {
+  userId: string;
+  usage: EndUserUsage;
+  threshold: EndUserThreshold;
+  blocked: boolean;
+  blockEntry: BlockEntry | null;
 }
 
 export interface BlockUserRequest {
@@ -50,10 +62,20 @@ export interface BlockUserRequest {
 }
 
 export interface BlockEntry {
-  endUserId: string;
+  /** The API returns `userId`, not `endUserId`. */
+  userId: string;
   reason?: string;
   blockedAt: string;
-  expiresAt?: string;
+  expiresAt?: string | null;
+}
+
+export interface ListBlockedResponse {
+  blocked: BlockEntry[];
+}
+
+export interface ListOrgBlockedResponse {
+  blocked: BlockEntry[];
+  count: number;
 }
 
 export interface SetThresholdRequest {
@@ -69,49 +91,72 @@ export interface OrgSummaryOptions {
   period?: UsagePeriod;
 }
 
+export interface OrgSummaryUser {
+  userId: string;
+  displayName: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costUsd: number;
+    lastUpdated: string | null;
+  };
+}
+
 export interface OrgSummary {
   orgId: string;
   period: UsagePeriod;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalTokens: number;
-  totalCostUsd: number;
+  /** Human-readable label for the period, e.g. "Feb 2026" or "2026-02-21". */
+  periodLabel: string;
+  /** Total cost across all users in the period (field is `totalCost`, not `totalCostUsd`). */
+  totalCost: number;
   userCount: number;
+  users: OrgSummaryUser[];
+  featureFilter: string | null;
 }
 
 export interface OrgEndUser {
-  endUserId: string;
-  email?: string;
-  name?: string;
-  usage: EndUserUsage;
+  /** The API returns `id`, not `endUserId`. */
+  id: string;
+  /** Display name derived from user name, email, or id. */
+  displayName: string;
+  email: string | null;
 }
 
 // ─── Admin – Logs ────────────────────────────────────────────────────────────
 
+export interface RequestLogTokenDetails {
+  cachedInputTokens: number | null;
+  textInputTokens: number | null;
+  audioInputTokens: number | null;
+  imageInputTokens: number | null;
+  textOutputTokens: number | null;
+  audioOutputTokens: number | null;
+  reasoningTokens: number | null;
+}
+
 export interface RequestLog {
   id: string;
-  endUserId: string;
-  orgId?: string;
-  endUserEmail?: string;
-  endUserName?: string;
+  /** The API serialises `endUserId` as `userId`. */
+  userId: string;
+  orgId: string | null;
+  /** The API serialises `endUserEmail` as `userEmail`. */
+  userEmail: string | null;
+  /** The API serialises `endUserName` as `userName`. */
+  userName: string | null;
   conversationId: string;
   model: string;
-  feature?: string;
+  feature: string | null;
   requestBody: string;
-  responseBody?: string;
+  responseBody: string | null;
   status: "success" | "error";
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-  cachedInputTokens?: number;
-  textInputTokens?: number;
-  audioInputTokens?: number;
-  imageInputTokens?: number;
-  textOutputTokens?: number;
-  audioOutputTokens?: number;
-  reasoningTokens?: number;
-  costUsd?: number;
-  latencyMs?: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  /** Granular token breakdown, nested under `tokenDetails`. */
+  tokenDetails: RequestLogTokenDetails;
+  costUsd: number | null;
+  latencyMs: number | null;
   createdAt: string;
 }
 
@@ -126,16 +171,16 @@ export interface ListLogsResponse {
 
 export interface Policy {
   id: string;
-  orgId: string;
   name: string;
-  description?: string;
+  description: string;
+  source: "openai_moderation" | "custom";
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface CreatePolicyRequest {
   name: string;
-  description?: string;
+  /** Required — the API returns 400 when description is omitted. */
+  description: string;
 }
 
 export interface UpdatePolicyRequest {
@@ -145,38 +190,58 @@ export interface UpdatePolicyRequest {
 
 // ─── Admin – Rules ───────────────────────────────────────────────────────────
 
-export type SubjectType = "user" | "org" | "global";
-export type RestrictionType = "token_limit" | "cost_limit" | "model_allowlist" | "feature_allowlist";
+/** Subject types used by the rules engine. */
+export type SubjectType = "user" | "group" | "feature";
+
+/** Restriction/action types applied when a rule triggers. */
+export type RestrictionType = "warning" | "rate_limit" | "throttle" | "block";
+
+export interface RuleSubject {
+  type: SubjectType;
+  ids: string[];
+}
+
+export interface RuleNotifications {
+  webhookUrl?: string;
+  injectResponse?: boolean;
+  responseMessage?: string;
+}
 
 export interface Rule {
   id: string;
-  orgId: string;
-  policyId?: string;
-  subjectType: SubjectType;
-  subjectId?: string;
-  restrictionType: RestrictionType;
-  value: unknown;
+  name: string;
   enabled: boolean;
+  subject: RuleSubject;
+  trigger: Record<string, unknown> & { type: string };
+  restriction: Record<string, unknown> & { type: RestrictionType };
+  notifications: RuleNotifications;
   createdAt: string;
   updatedAt: string;
+  createdBy?: string;
+  lastTriggeredAt?: string | null;
+}
+
+export interface ListRulesResponse {
+  rules: Rule[];
+  total: number;
 }
 
 export interface CreateRuleRequest {
-  policyId?: string;
-  subjectType: SubjectType;
-  subjectId?: string;
-  restrictionType: RestrictionType;
-  value: unknown;
+  name: string;
   enabled?: boolean;
+  subject: RuleSubject;
+  trigger: Record<string, unknown> & { type: string };
+  restriction: Record<string, unknown> & { type: RestrictionType };
+  notifications: RuleNotifications;
 }
 
 export interface UpdateRuleRequest {
-  policyId?: string;
-  subjectType?: SubjectType;
-  subjectId?: string;
-  restrictionType?: RestrictionType;
-  value?: unknown;
+  name?: string;
   enabled?: boolean;
+  subject?: RuleSubject;
+  trigger?: Record<string, unknown> & { type: string };
+  restriction?: Record<string, unknown> & { type: RestrictionType };
+  notifications?: RuleNotifications;
 }
 
 export interface ListRulesOptions {
@@ -188,18 +253,33 @@ export interface ListRulesOptions {
 export interface RuleHistoryEntry {
   id: string;
   ruleId: string;
-  changedBy?: string;
-  previousValue: unknown;
-  newValue: unknown;
-  changedAt: string;
+  action: "created" | "updated" | "enabled" | "disabled" | "deleted";
+  changes?: Record<string, { from: unknown; to: unknown }>;
+  /** ISO timestamp of when the change occurred (field is `timestamp`, not `changedAt`). */
+  timestamp: string;
+  userId?: string;
+}
+
+export interface ListRuleHistoryResponse {
+  entries: RuleHistoryEntry[];
+  total: number;
 }
 
 export interface RuleTrigger {
   id: string;
   ruleId: string;
-  endUserId: string;
-  triggeredAt: string;
-  context?: Record<string, unknown>;
+  /** The API returns `subjectId`, not `endUserId`. */
+  subjectId: string;
+  subjectType: SubjectType;
+  triggerContext: string;
+  actionTaken: string;
+  /** ISO timestamp (field is `timestamp`, not `triggeredAt`). */
+  timestamp: string;
+}
+
+export interface ListRuleTriggersResponse {
+  events: RuleTrigger[];
+  total: number;
 }
 
 // ─── SDK ─────────────────────────────────────────────────────────────────────
@@ -214,10 +294,19 @@ export interface SdkCheckRequest {
   feature?: string;
 }
 
+/** Usage summary returned by /sdk/check — `tokens` (not `totalTokens`). */
+export interface SdkCheckUsage {
+  tokens: number;
+  costUsd: number;
+}
+
 export interface SdkCheckResponse {
   allowed: boolean;
-  usage: EndUserUsage;
-  remaining: {
+  /** Present when `allowed` is false. */
+  reason?: string;
+  usage: SdkCheckUsage;
+  /** Present when `allowed` is true. */
+  remaining?: {
     tokens: number;
     costUsd: number;
   };
@@ -229,7 +318,8 @@ export interface SdkRecordRequest {
   requestType: RequestType;
   inputTokens: number;
   outputTokens: number;
-  latencyMs?: number;
+  /** Required — the API schema has no `.optional()` on this field. */
+  latencyMs: number;
   success: boolean;
   feature?: string;
 }
