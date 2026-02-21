@@ -2,7 +2,8 @@
 name = 'tokenist-api'
 
 main = "src/worker.ts"
-compatibility_date = "2024-12-01"
+# Required for node:stream and other Node builtins
+compatibility_date = "2025-02-21"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
