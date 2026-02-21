@@ -23,24 +23,10 @@ describe("TokenistClient", () => {
       ).toThrow("baseUrl is required");
     });
 
-    it("exposes auth, admin, and sdk sub-resources", () => {
+    it("exposes admin and sdk sub-resources", () => {
       const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
-      expect(client.auth).toBeDefined();
       expect(client.admin).toBeDefined();
       expect(client.sdk).toBeDefined();
-    });
-  });
-
-  describe("auth token management", () => {
-    it("setAuthToken / getAuthToken / clearAuthToken round-trip", () => {
-      const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
-      expect(client.getAuthToken()).toBeUndefined();
-
-      client.setAuthToken("jwt.token.here");
-      expect(client.getAuthToken()).toBe("jwt.token.here");
-
-      client.clearAuthToken();
-      expect(client.getAuthToken()).toBeUndefined();
     });
   });
 
@@ -81,7 +67,7 @@ describe("TokenistClient", () => {
   });
 
   describe("request authentication", () => {
-    it("sends the API key as Bearer token by default", async () => {
+    it("sends the API key as Bearer token on every request", async () => {
       const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
       const spy = mockFetch({ body: [] });
 
@@ -90,23 +76,6 @@ describe("TokenistClient", () => {
       const [, options] = spy.mock.calls[0] as [string, RequestInit];
       const headers = options.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe(`Bearer ${API_KEY}`);
-    });
-
-    it("sends the stored JWT for jwtRequest calls", async () => {
-      const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
-      client.setAuthToken("my.jwt.token");
-
-      const spy = mockFetch({ body: { userId: "u1", email: "a@b.com" } });
-      await client.auth.me();
-
-      const [, options] = spy.mock.calls[0] as [string, RequestInit];
-      const headers = options.headers as Record<string, string>;
-      expect(headers["Authorization"]).toBe("Bearer my.jwt.token");
-    });
-
-    it("throws when calling a JWT-protected endpoint without a token", async () => {
-      const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
-      await expect(client.auth.me()).rejects.toThrow(/No JWT token/);
     });
   });
 

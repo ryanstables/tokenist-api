@@ -19,54 +19,6 @@ export interface PaginatedResult<T> {
   total: number;
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
-
-export interface RegisterRequest {
-  email: string;
-  password: string;
-  displayName?: string;
-  orgId?: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface UserProfile {
-  userId: string;
-  email: string;
-  displayName?: string;
-  orgId?: string;
-}
-
-export interface AuthResponse {
-  user: UserProfile;
-  token: string;
-}
-
-export interface ApiKey {
-  id: string;
-  userId: string;
-  name: string;
-  /** Only returned when the key is first created. */
-  apiKey?: string;
-  createdAt: string;
-}
-
-export interface CreateApiKeyRequest {
-  name: string;
-}
-
-export interface CreateApiKeyResponse extends ApiKey {
-  apiKey: string;
-}
-
-export interface UserUsageResponse {
-  usage: EndUserUsage;
-  threshold: EndUserThreshold;
-}
-
 // ─── Usage & Thresholds ──────────────────────────────────────────────────────
 
 export interface EndUserUsage {

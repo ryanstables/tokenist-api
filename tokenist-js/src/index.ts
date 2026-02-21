@@ -4,15 +4,6 @@ export { TokenistError } from "./error";
 export type {
   // Client
   TokenistClientOptions,
-  // Auth
-  RegisterRequest,
-  LoginRequest,
-  AuthResponse,
-  UserProfile,
-  ApiKey,
-  CreateApiKeyRequest,
-  CreateApiKeyResponse,
-  UserUsageResponse,
   // Usage
   EndUserUsage,
   EndUserThreshold,

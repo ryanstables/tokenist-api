@@ -180,14 +180,12 @@ describe("sdk resource", () => {
       expect(options.method).toBe("POST");
     });
 
-    it("uses the API key for authentication (not JWT)", async () => {
+    it("uses the API key for authentication", async () => {
       const client = makeClient();
-      client.setAuthToken("should-not-be-used");
       const spy = mockFetch({ body: {} });
 
       await client.sdk.log({ model: "gpt-4o", request: {} });
 
-      // SDK endpoints use the API key, not the JWT
       const [, options] = spy.mock.calls[0] as [string, RequestInit];
       const headers = options.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe(`Bearer ${API_KEY}`);
