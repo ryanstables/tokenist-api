@@ -54,7 +54,7 @@ export interface StoredApiKey {
   id: string;
   userId: string;
   name: string;
-  apiKey: string | null;
+  keyHint: string;
   createdAt: Date;
 }
 
