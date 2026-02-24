@@ -3,7 +3,6 @@ import type { LogLevel, Logger } from './logger';
 import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore } from './storage/interfaces';
 
 export interface TokenistConfig {
-  openaiApiKey: string;
   defaultMaxCostUsd?: number;
   defaultMaxTotalTokens?: number;
   defaultUsageWindow?: UsageWindow;

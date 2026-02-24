@@ -9,7 +9,6 @@ import {
 } from './storage/d1';
 
 interface Env {
-  OPENAI_API_KEY: string;
   JWT_SECRET: string;
   DEFAULT_MAX_COST_USD?: string;
   DEFAULT_MAX_TOTAL_TOKENS?: string;
@@ -28,7 +27,6 @@ export default {
     const pricingStore = createD1PricingStore(env.DB);
 
     const tokenist = createTokenist({
-      openaiApiKey: env.OPENAI_API_KEY,
       jwtSecret: env.JWT_SECRET,
       defaultMaxCostUsd,
       defaultMaxTotalTokens,
