@@ -133,3 +133,64 @@ describe('createInMemoryPricingStore', () => {
     expect(tokenTypeNames).toContain('text-output');
   });
 });
+
+import {
+  createInMemoryApiKeyStore,
+} from './memory';
+
+describe('createInMemoryApiKeyStore', () => {
+  it('create returns a plainKey and a key with keyHint', async () => {
+    const store = createInMemoryApiKeyStore();
+    const { key, plainKey } = await store.create('user-1', 'My Key');
+
+    expect(plainKey).toMatch(/^ug_[0-9a-f]{64}$/);
+    expect(key.keyHint).toBe(plainKey.slice(0, 12));
+    expect(key.name).toBe('My Key');
+    expect(key.userId).toBe('user-1');
+    expect('apiKey' in key).toBe(false);
+  });
+
+  it('findUserIdByApiKey returns userId when key is valid', async () => {
+    const store = createInMemoryApiKeyStore();
+    const { plainKey } = await store.create('user-1', 'Test');
+
+    const userId = await store.findUserIdByApiKey(plainKey);
+    expect(userId).toBe('user-1');
+  });
+
+  it('findUserIdByApiKey returns undefined for unknown key', async () => {
+    const store = createInMemoryApiKeyStore();
+    const userId = await store.findUserIdByApiKey('ug_' + 'a'.repeat(64));
+    expect(userId).toBeUndefined();
+  });
+
+  it('listByUserId returns keys with keyHint', async () => {
+    const store = createInMemoryApiKeyStore();
+    const { plainKey } = await store.create('user-1', 'Key A');
+    await store.create('user-1', 'Key B');
+
+    const keys = await store.listByUserId('user-1');
+    expect(keys).toHaveLength(2);
+    expect(keys[0].keyHint).toBe(plainKey.slice(0, 12));
+    expect('apiKey' in keys[0]).toBe(false);
+  });
+
+  it('delete removes the key so findUserIdByApiKey returns undefined', async () => {
+    const store = createInMemoryApiKeyStore();
+    const { key, plainKey } = await store.create('user-1', 'Temp');
+
+    const deleted = await store.delete('user-1', key.id);
+    expect(deleted).toBe(true);
+
+    const userId = await store.findUserIdByApiKey(plainKey);
+    expect(userId).toBeUndefined();
+  });
+
+  it('delete returns false for wrong userId', async () => {
+    const store = createInMemoryApiKeyStore();
+    const { key } = await store.create('user-1', 'Test');
+
+    const deleted = await store.delete('user-2', key.id);
+    expect(deleted).toBe(false);
+  });
+});

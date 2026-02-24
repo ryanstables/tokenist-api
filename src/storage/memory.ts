@@ -171,6 +171,15 @@ export function createInMemoryBlocklist(): Blocklist {
   };
 }
 
+async function sha256Hex(data: string): Promise<string> {
+  const encoded = new TextEncoder().encode(data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function generateApiKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -234,7 +243,7 @@ export function createInMemoryUserStore(): UserStore {
 
 export function createInMemoryApiKeyStore(): ApiKeyStore {
   const keys = new Map<string, StoredApiKey>();
-  const apiKeyIndex = new Map<string, string>(); // apiKey -> keyId
+  const hashIndex = new Map<string, string>(); // sha256(plainKey) -> keyId
 
   return {
     async create(
@@ -243,15 +252,17 @@ export function createInMemoryApiKeyStore(): ApiKeyStore {
     ): Promise<{ key: StoredApiKey; plainKey: string }> {
       const plainKey = generateApiKey();
       const id = crypto.randomUUID();
+      const keyHash = await sha256Hex(plainKey);
+      const keyHint = plainKey.slice(0, 12);
       const key: StoredApiKey = {
         id,
         userId,
         name,
-        apiKey: plainKey,
+        keyHint,
         createdAt: new Date(),
       };
       keys.set(id, key);
-      apiKeyIndex.set(plainKey, id);
+      hashIndex.set(keyHash, id);
       return { key, plainKey };
     },
 
@@ -266,14 +277,18 @@ export function createInMemoryApiKeyStore(): ApiKeyStore {
     async delete(userId: string, keyId: string): Promise<boolean> {
       const key = keys.get(keyId);
       if (!key || key.userId !== userId) return false;
-      if (key.apiKey) {
-        apiKeyIndex.delete(key.apiKey);
+      for (const [hash, id] of hashIndex.entries()) {
+        if (id === keyId) {
+          hashIndex.delete(hash);
+          break;
+        }
       }
       return keys.delete(keyId);
     },
 
     async findUserIdByApiKey(apiKey: string): Promise<string | undefined> {
-      const keyId = apiKeyIndex.get(apiKey);
+      const keyHash = await sha256Hex(apiKey);
+      const keyId = hashIndex.get(keyHash);
       if (!keyId) return undefined;
       return keys.get(keyId)?.userId;
     },
