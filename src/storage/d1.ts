@@ -904,7 +904,8 @@ export function createD1SlackSettingsStore(db: D1Database): SlackSettingsStore {
         .prepare('SELECT * FROM slack_settings WHERE org_id = ?')
         .bind(settings.orgId)
         .first<SlackRow>();
-      return rowToSettings(row!);
+      if (!row) throw new Error(`slack_settings row missing after upsert for org ${settings.orgId}`);
+      return rowToSettings(row);
     },
 
     async delete(orgId: string): Promise<boolean> {
