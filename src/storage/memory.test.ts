@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createInMemoryUsageStore,
   createInMemoryPricingStore,
+  createInMemorySlackSettingsStore,
 } from './memory';
 import { calculateCost, calculateDetailedCost } from '../usage/pricing';
 
@@ -192,5 +193,58 @@ describe('createInMemoryApiKeyStore', () => {
 
     const deleted = await store.delete('user-2', key.id);
     expect(deleted).toBe(false);
+  });
+});
+
+describe('createInMemorySlackSettingsStore', () => {
+  it('returns undefined for unknown org', async () => {
+    const store = createInMemorySlackSettingsStore();
+    expect(await store.get('org-1')).toBeUndefined();
+  });
+
+  it('upsert creates and get retrieves', async () => {
+    const store = createInMemorySlackSettingsStore();
+    const settings = await store.upsert({
+      orgId: 'org-1',
+      webhookUrl: 'https://hooks.slack.com/test',
+      timezone: 'America/New_York',
+      enabled: true,
+    });
+    expect(settings.orgId).toBe('org-1');
+    expect(settings.webhookUrl).toBe('https://hooks.slack.com/test');
+    expect(settings.enabled).toBe(true);
+
+    const fetched = await store.get('org-1');
+    expect(fetched?.timezone).toBe('America/New_York');
+  });
+
+  it('upsert updates existing', async () => {
+    const store = createInMemorySlackSettingsStore();
+    await store.upsert({ orgId: 'org-1', webhookUrl: 'https://hooks.slack.com/old', timezone: 'UTC', enabled: true });
+    await store.upsert({ orgId: 'org-1', webhookUrl: 'https://hooks.slack.com/new', timezone: 'UTC', enabled: false });
+    const fetched = await store.get('org-1');
+    expect(fetched?.webhookUrl).toBe('https://hooks.slack.com/new');
+    expect(fetched?.enabled).toBe(false);
+  });
+
+  it('delete removes settings', async () => {
+    const store = createInMemorySlackSettingsStore();
+    await store.upsert({ orgId: 'org-1', webhookUrl: 'https://hooks.slack.com/test', timezone: 'UTC', enabled: true });
+    expect(await store.delete('org-1')).toBe(true);
+    expect(await store.get('org-1')).toBeUndefined();
+  });
+
+  it('delete returns false for unknown org', async () => {
+    const store = createInMemorySlackSettingsStore();
+    expect(await store.delete('org-x')).toBe(false);
+  });
+
+  it('listEnabled returns only enabled settings', async () => {
+    const store = createInMemorySlackSettingsStore();
+    await store.upsert({ orgId: 'org-1', webhookUrl: 'https://hooks.slack.com/a', timezone: 'UTC', enabled: true });
+    await store.upsert({ orgId: 'org-2', webhookUrl: 'https://hooks.slack.com/b', timezone: 'UTC', enabled: false });
+    const enabled = await store.listEnabled();
+    expect(enabled).toHaveLength(1);
+    expect(enabled[0].orgId).toBe('org-1');
   });
 });

@@ -15,6 +15,8 @@ import type {
   ModelTokenPricing,
   ModelPricing,
   DetailedTokenUsage,
+  SlackSettings,
+  SlackSettingsStore,
 } from './interfaces';
 import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
@@ -450,6 +452,36 @@ export function createInMemoryPricingStore(): PricingStore {
 
     async listModelsByCategory(_category: string): Promise<ModelRecord[]> {
       return [];
+    },
+  };
+}
+
+export function createInMemorySlackSettingsStore(): SlackSettingsStore {
+  const store = new Map<string, SlackSettings>();
+
+  return {
+    async get(orgId: string): Promise<SlackSettings | undefined> {
+      return store.get(orgId);
+    },
+
+    async upsert(settings: Pick<SlackSettings, 'orgId' | 'webhookUrl' | 'timezone' | 'enabled'>): Promise<SlackSettings> {
+      const now = new Date();
+      const existing = store.get(settings.orgId);
+      const record: SlackSettings = {
+        ...settings,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      store.set(settings.orgId, record);
+      return record;
+    },
+
+    async delete(orgId: string): Promise<boolean> {
+      return store.delete(orgId);
+    },
+
+    async listEnabled(): Promise<SlackSettings[]> {
+      return Array.from(store.values()).filter((s) => s.enabled);
     },
   };
 }
