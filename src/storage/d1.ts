@@ -404,17 +404,16 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
     user_id: string;
     name: string;
     key_hash: string;
+    key_hint: string;
     created_at: string;
   };
-
-  const isPlainApiKey = (value: string): boolean => value.startsWith('ug_');
 
   function rowToKey(row: ApiKeyRow): StoredApiKey {
     return {
       id: row.id,
       userId: row.user_id,
       name: row.name,
-      apiKey: isPlainApiKey(row.key_hash) ? row.key_hash : null,
+      keyHint: row.key_hint,
       createdAt: new Date(row.created_at),
     };
   }
@@ -427,15 +426,17 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
       const plainKey = generateApiKey();
       const id = crypto.randomUUID();
       const now = new Date();
+      const keyHash = await sha256Hex(plainKey);
+      const keyHint = plainKey.slice(0, 12);
 
       await db
         .prepare(
-          'INSERT INTO api_keys (id, user_id, name, key_hash, created_at) VALUES (?, ?, ?, ?, ?)'
+          'INSERT INTO api_keys (id, user_id, name, key_hash, key_hint, created_at) VALUES (?, ?, ?, ?, ?, ?)'
         )
-        .bind(id, userId, name, plainKey, now.toISOString())
+        .bind(id, userId, name, keyHash, keyHint, now.toISOString())
         .run();
 
-      const key: StoredApiKey = { id, userId, name, apiKey: plainKey, createdAt: now };
+      const key: StoredApiKey = { id, userId, name, keyHint, createdAt: now };
       return { key, plainKey };
     },
 
@@ -458,8 +459,8 @@ export function createD1ApiKeyStore(db: D1Database): ApiKeyStore {
     async findUserIdByApiKey(apiKey: string): Promise<string | undefined> {
       const keyHash = await sha256Hex(apiKey);
       const row = await db
-        .prepare('SELECT user_id FROM api_keys WHERE key_hash IN (?, ?) LIMIT 1')
-        .bind(apiKey, keyHash)
+        .prepare('SELECT user_id FROM api_keys WHERE key_hash = ?')
+        .bind(keyHash)
         .first<{ user_id: string }>();
       return row?.user_id;
     },
