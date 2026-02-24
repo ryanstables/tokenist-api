@@ -126,3 +126,13 @@ CREATE TABLE IF NOT EXISTS model_aliases (
 );
 
 CREATE INDEX IF NOT EXISTS idx_model_aliases_model_id ON model_aliases(model_id);
+
+-- Slack daily report settings per org
+CREATE TABLE IF NOT EXISTS slack_settings (
+  org_id TEXT PRIMARY KEY,
+  webhook_url TEXT NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

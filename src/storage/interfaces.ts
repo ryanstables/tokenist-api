@@ -156,3 +156,19 @@ export interface PricingStore {
   listModels(): Promise<ModelRecord[]>;
   listModelsByCategory(category: string): Promise<ModelRecord[]>;
 }
+
+export interface SlackSettings {
+  orgId: string;
+  webhookUrl: string;
+  timezone: string;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SlackSettingsStore {
+  get(orgId: string): Promise<SlackSettings | undefined>;
+  upsert(settings: Pick<SlackSettings, 'orgId' | 'webhookUrl' | 'timezone' | 'enabled'>): Promise<SlackSettings>;
+  delete(orgId: string): Promise<boolean>;
+  listEnabled(): Promise<SlackSettings[]>;
+}
