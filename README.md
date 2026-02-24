@@ -565,6 +565,21 @@ database_id = "your-database-id-here"
 wrangler d1 execute tokenist-db --remote --file=./schema.sql
 ```
 
+If you see `no such column: end_user_id` (or similar), the remote database already has tables from an older schema. The schema uses `CREATE TABLE IF NOT EXISTS`, so existing tables are left as-is and later index/table statements can fail. To **reset the remote DB and start from scratch** (all data will be lost):
+
+```bash
+# Drop all tables on remote
+wrangler d1 execute tokenist-db --remote --file=./scripts/drop-remote-tables.sql
+# Re-apply schema
+wrangler d1 execute tokenist-db --remote --file=./schema.sql
+```
+
+Optional: seed pricing after schema:
+
+```bash
+wrangler d1 execute tokenist-db --remote --file=./seed-pricing.sql
+```
+
 4. **Set secrets:**
 
 ```bash
