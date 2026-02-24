@@ -323,10 +323,18 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
     async listByOrgIdAndEndUserId(
       orgId: string,
       endUserId: string,
-      opts: { limit: number; offset: number }
+      opts: { limit: number; offset: number; from?: string; to?: string }
     ): Promise<{ logs: StoredRequestLog[]; total: number }> {
+      const fromMs = opts.from ? new Date(opts.from + 'T00:00:00.000Z').getTime() : null;
+      const toMs = opts.to ? new Date(opts.to + 'T23:59:59.999Z').getTime() : null;
       const filtered = logs
-        .filter((l) => l.orgId === orgId && l.endUserId === endUserId)
+        .filter((l) => {
+          if (l.orgId !== orgId || l.endUserId !== endUserId) return false;
+          const t = l.createdAt.getTime();
+          if (fromMs !== null && t < fromMs) return false;
+          if (toMs !== null && t > toMs) return false;
+          return true;
+        })
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       return {
         logs: filtered.slice(opts.offset, opts.offset + opts.limit),

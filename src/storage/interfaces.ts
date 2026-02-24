@@ -108,7 +108,7 @@ export interface RequestLogStore {
   listByOrgIdAndEndUserId(
     orgId: string,
     endUserId: string,
-    opts: { limit: number; offset: number }
+    opts: { limit: number; offset: number; from?: string; to?: string }
   ): Promise<{ logs: StoredRequestLog[]; total: number }>;
   getById(id: string): Promise<StoredRequestLog | undefined>;
 }

@@ -342,6 +342,8 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
             const { logs: userLogs } = await requestLogStore.listByOrgIdAndEndUserId(orgId, endUserId, {
               limit: 2000,
               offset: 0,
+              from: fromParam,
+              to: toParam,
             });
             let inputTokens = 0;
             let outputTokens = 0;

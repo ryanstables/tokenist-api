@@ -604,20 +604,36 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     async listByOrgIdAndEndUserId(
       orgId: string,
       endUserId: string,
-      opts: { limit: number; offset: number }
+      opts: { limit: number; offset: number; from?: string; to?: string }
     ): Promise<{ logs: StoredRequestLog[]; total: number }> {
-      const countRow = await db
-        .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ? AND end_user_id = ?')
-        .bind(orgId, endUserId)
-        .first<{ cnt: number }>();
+      const hasDateRange = opts.from && opts.to;
+      const fromIso = opts.from ? opts.from + 'T00:00:00.000Z' : null;
+      const toIso = opts.to ? opts.to + 'T23:59:59.999Z' : null;
+
+      const countRow = hasDateRange
+        ? await db
+            .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ? AND end_user_id = ? AND created_at >= ? AND created_at <= ?')
+            .bind(orgId, endUserId, fromIso, toIso)
+            .first<{ cnt: number }>()
+        : await db
+            .prepare('SELECT COUNT(*) as cnt FROM request_logs WHERE org_id = ? AND end_user_id = ?')
+            .bind(orgId, endUserId)
+            .first<{ cnt: number }>();
       const total = countRow?.cnt ?? 0;
 
-      const { results } = await db
-        .prepare(
-          'SELECT * FROM request_logs WHERE org_id = ? AND end_user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
-        )
-        .bind(orgId, endUserId, opts.limit, opts.offset)
-        .all<LogRow>();
+      const { results } = hasDateRange
+        ? await db
+            .prepare(
+              'SELECT * FROM request_logs WHERE org_id = ? AND end_user_id = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+            )
+            .bind(orgId, endUserId, fromIso, toIso, opts.limit, opts.offset)
+            .all<LogRow>()
+        : await db
+            .prepare(
+              'SELECT * FROM request_logs WHERE org_id = ? AND end_user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+            )
+            .bind(orgId, endUserId, opts.limit, opts.offset)
+            .all<LogRow>();
 
       return { logs: results.map(rowToLog), total };
     },
