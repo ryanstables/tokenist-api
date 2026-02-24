@@ -254,6 +254,8 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       const period = (c.req.query('period') ?? 'monthly') as 'daily' | 'monthly' | 'rolling_24h';
       const userIdsParam = c.req.query('userIds'); // optional filter: end user ids
       const feature = c.req.query('feature') ?? null;
+      const fromParam = c.req.query('from'); // YYYY-MM-DD
+      const toParam = c.req.query('to');     // YYYY-MM-DD
       const scopedEndUserIds = new Set(
         (userIdsParam ?? '')
           .split(',')
@@ -270,10 +272,31 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           : orgEndUsers;
 
       const now = new Date();
-      const periodKeys =
-        period === 'rolling_24h'
-          ? getRolling24hPeriodKeys(now)
-          : [getPeriodKey(period, now)];
+
+      // Determine period keys and label — prefer explicit from/to date range over period buckets
+      let periodKeys: string[];
+      let resolvedPeriodLabel: string;
+
+      if (fromParam && toParam) {
+        // Generate daily keys for each day in the range
+        periodKeys = [];
+        const startDate = new Date(fromParam + 'T00:00:00Z');
+        const endDate = new Date(toParam + 'T23:59:59Z');
+        const cur = new Date(startDate);
+        while (cur <= endDate && periodKeys.length < 366) {
+          periodKeys.push(getPeriodKey('daily', cur));
+          cur.setUTCDate(cur.getUTCDate() + 1);
+        }
+        const fmtDate = (d: Date) =>
+          d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+        resolvedPeriodLabel =
+          fromParam.slice(0, 7) === toParam.slice(0, 7)
+            ? `${parseInt(fromParam.slice(8), 10)} – ${parseInt(toParam.slice(8), 10)} ${new Date(toParam + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })}`
+            : `${fmtDate(new Date(fromParam + 'T00:00:00Z'))} – ${fmtDate(new Date(toParam + 'T00:00:00Z'))}`;
+      } else {
+        periodKeys = period === 'rolling_24h' ? getRolling24hPeriodKeys(now) : [getPeriodKey(period, now)];
+        resolvedPeriodLabel = buildPeriodLabel(period);
+      }
 
       const users = await Promise.all(
         endUsersInScope.map(async (endUser) => {
@@ -361,7 +384,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       return c.json({
         orgId,
         period,
-        periodLabel: buildPeriodLabel(period),
+        periodLabel: resolvedPeriodLabel,
         totalCost,
         userCount: users.length,
         users,
