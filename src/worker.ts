@@ -8,6 +8,7 @@ import {
   createD1PricingStore,
   createD1SlackSettingsStore,
 } from './storage/d1';
+import { handleSlackReports } from './slack/reporter';
 
 interface Env {
   JWT_SECRET: string;
@@ -46,5 +47,9 @@ export default {
     });
 
     return tokenist.fetch(request);
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await handleSlackReports(env.DB);
   },
 };
