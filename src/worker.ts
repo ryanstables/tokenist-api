@@ -6,6 +6,7 @@ import {
   createD1ApiKeyStore,
   createD1RequestLogStore,
   createD1PricingStore,
+  createD1SlackSettingsStore,
 } from './storage/d1';
 
 interface Env {
@@ -25,6 +26,7 @@ export default {
       : 0;
 
     const pricingStore = createD1PricingStore(env.DB);
+    const slackSettingsStore = createD1SlackSettingsStore(env.DB);
 
     const tokenist = createTokenist({
       jwtSecret: env.JWT_SECRET,
@@ -40,6 +42,7 @@ export default {
       apiKeyStore: createD1ApiKeyStore(env.DB),
       requestLogStore: createD1RequestLogStore(env.DB),
       pricingStore,
+      slackSettingsStore,
     });
 
     return tokenist.fetch(request);

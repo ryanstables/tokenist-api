@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
@@ -24,6 +24,7 @@ export interface AdminRouteDeps {
   apiKeyStore?: ApiKeyStore;
   requestLogStore?: RequestLogStore;
   pricingStore?: PricingStore;
+  slackSettingsStore?: SlackSettingsStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -123,7 +124,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, logger, jwtSecret, jwtExpiresIn } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, logger, jwtSecret, jwtExpiresIn } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -934,6 +935,92 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         threshold,
       });
     });
+
+    // ============================================================
+    // Slack settings routes (protected, require orgId in JWT)
+    // ============================================================
+
+    if (slackSettingsStore) {
+      // Get Slack settings for authenticated org
+      app.get('/auth/slack', authMw, async (c) => {
+        const payload = c.get('user');
+        const orgId = payload.orgId;
+        if (!orgId) return c.json({ error: 'Organization required' }, 403);
+        const settings = await slackSettingsStore.get(orgId);
+        if (!settings) return c.json({ error: 'Not configured' }, 404);
+        return c.json({
+          orgId: settings.orgId,
+          webhookUrl: settings.webhookUrl,
+          timezone: settings.timezone,
+          enabled: settings.enabled,
+          createdAt: settings.createdAt.toISOString(),
+        });
+      });
+
+      // Create or update Slack settings
+      app.put('/auth/slack', authMw, async (c) => {
+        const payload = c.get('user');
+        const orgId = payload.orgId;
+        if (!orgId) return c.json({ error: 'Organization required' }, 403);
+        const body = (await c.req.json().catch(() => ({}))) as {
+          webhookUrl?: string;
+          timezone?: string;
+          enabled?: boolean;
+        };
+        if (!body.webhookUrl || !body.webhookUrl.startsWith('https://hooks.slack.com/')) {
+          return c.json({ error: 'Valid Slack webhook URL required (must start with https://hooks.slack.com/)' }, 400);
+        }
+        const timezone = body.timezone ?? 'UTC';
+        const enabled = body.enabled !== false;
+        const settings = await slackSettingsStore.upsert({ orgId, webhookUrl: body.webhookUrl, timezone, enabled });
+        return c.json({
+          orgId: settings.orgId,
+          webhookUrl: settings.webhookUrl,
+          timezone: settings.timezone,
+          enabled: settings.enabled,
+          createdAt: settings.createdAt.toISOString(),
+        });
+      });
+
+      // Delete Slack settings
+      app.delete('/auth/slack', authMw, async (c) => {
+        const payload = c.get('user');
+        const orgId = payload.orgId;
+        if (!orgId) return c.json({ error: 'Organization required' }, 403);
+        const deleted = await slackSettingsStore.delete(orgId);
+        if (!deleted) return c.json({ error: 'Not configured' }, 404);
+        return c.json({ ok: true });
+      });
+
+      // Send a test message
+      app.post('/auth/slack/test', authMw, async (c) => {
+        const payload = c.get('user');
+        const orgId = payload.orgId;
+        if (!orgId) return c.json({ error: 'Organization required' }, 403);
+        const settings = await slackSettingsStore.get(orgId);
+        if (!settings) return c.json({ error: 'Slack not configured' }, 404);
+        const testMessage = [
+          '📊 *Tokenist Test Message*',
+          '',
+          'Your Slack integration is working! Daily reports will arrive at 8:00 AM in your configured timezone.',
+          '',
+          '_Powered by Tokenist_',
+        ].join('\n');
+        try {
+          const res = await fetch(settings.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: testMessage }),
+          });
+          if (!res.ok) {
+            return c.json({ error: `Slack returned ${res.status}` }, 502);
+          }
+          return c.json({ ok: true });
+        } catch {
+          return c.json({ error: 'Failed to reach Slack' }, 502);
+        }
+      });
+    }
   }
 
   // ============================================================
