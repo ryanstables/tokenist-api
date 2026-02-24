@@ -332,8 +332,10 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
                   }
                 : undefined;
           }
-          // Fallback to 'default' period key when SDK/log or SDK/record wrote usage there (no period-specific key)
-          if (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.totalTokens === 0)) {
+          // Fallback to 'default' period key when SDK/log or SDK/record wrote usage there (no period-specific key).
+          // Skip this fallback when an explicit date range is requested — the 'default' key holds all-time data
+          // and would override the date filter, making every range show the same totals.
+          if (!fromParam && !toParam && (!usage || (usage.inputTokens === 0 && usage.outputTokens === 0 && usage.totalTokens === 0))) {
             const defaultUsage = await usageStore.getUsage(endUserId, 'default');
             if (defaultUsage) usage = defaultUsage;
           }
@@ -881,7 +883,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         keys: keys.map((key) => ({
           id: key.id,
           name: key.name,
-          apiKey: key.apiKey,
+          keyHint: key.keyHint,
           createdAt: key.createdAt.toISOString(),
         })),
       });
@@ -892,16 +894,17 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       const payload = c.get('user');
       const body = (await c.req.json().catch(() => ({}))) as { name?: string };
 
-      if (!body.name || body.name.length < 1 || body.name.length > 100) {
+      if (!body.name || body.name.trim().length === 0 || body.name.trim().length > 100) {
         return c.json({ error: 'name is required (1-100 chars)' }, 400);
       }
 
-      const result = await apiKeyStore.create(payload.userId, body.name);
+      const result = await apiKeyStore.create(payload.userId, body.name.trim());
       return c.json(
         {
           id: result.key.id,
           name: result.key.name,
           apiKey: result.plainKey,
+          keyHint: result.key.keyHint,
           createdAt: result.key.createdAt.toISOString(),
         },
         201
