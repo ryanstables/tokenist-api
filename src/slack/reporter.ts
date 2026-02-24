@@ -4,8 +4,9 @@ export function isEightAmInTimezone(timezone: string, now: Date = new Date()): b
       timeZone: timezone,
       hour: 'numeric',
       hour12: false,
+      hourCycle: 'h23',
     }).format(now);
-    // Intl returns '08' or '8' depending on implementation
+    // Intl may return '8', '08', or '24' (for midnight) depending on ICU version; parseInt handles all cases
     return parseInt(formatted, 10) === 8;
   } catch {
     return false;
@@ -33,9 +34,13 @@ export function formatSlackMessage(
 
 async function getOrgDailyStats(
   db: D1Database,
-  orgId: string
+  orgId: string,
+  timezone: string,
+  now: Date
 ): Promise<{ totalCost: number; activeUsers: number; blockedEvents: number }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+  }).format(now);
   const [spendRow, usersRow, blockedRow] = await Promise.all([
     db
       .prepare(`SELECT COALESCE(SUM(cost_usd), 0) as total FROM request_logs WHERE org_id = ? AND date(created_at) = ?`)
@@ -64,7 +69,7 @@ async function postToSlack(webhookUrl: string, text: string): Promise<void> {
     body: JSON.stringify({ text }),
   });
   if (!res.ok) {
-    console.error(`[slack] Webhook POST failed: ${res.status}`);
+    throw new Error(`[slack] Webhook POST failed with status ${res.status}`);
   }
 }
 
@@ -76,9 +81,9 @@ export async function handleSlackReports(db: D1Database): Promise<void> {
 
   const eligible = results.filter((row) => isEightAmInTimezone(row.timezone, now));
 
-  await Promise.allSettled(
+  const settled = await Promise.allSettled(
     eligible.map(async (row) => {
-      const stats = await getOrgDailyStats(db, row.org_id);
+      const stats = await getOrgDailyStats(db, row.org_id, row.timezone, now);
       const dateStr = new Intl.DateTimeFormat('en-US', {
         timeZone: row.timezone,
         month: 'short',
@@ -89,4 +94,9 @@ export async function handleSlackReports(db: D1Database): Promise<void> {
       await postToSlack(row.webhook_url, message);
     })
   );
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      console.error('[slack] Report delivery failed:', result.reason);
+    }
+  }
 }
