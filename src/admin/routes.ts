@@ -971,8 +971,16 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           return c.json({ error: 'Valid Slack webhook URL required (must start with https://hooks.slack.com/)' }, 400);
         }
         const timezone = body.timezone ?? 'UTC';
+        // Validate the timezone string
+        let validatedTimezone = 'UTC';
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+          validatedTimezone = timezone;
+        } catch {
+          // Invalid timezone, fall back to UTC
+        }
         const enabled = body.enabled !== false;
-        const settings = await slackSettingsStore.upsert({ orgId, webhookUrl: body.webhookUrl, timezone, enabled });
+        const settings = await slackSettingsStore.upsert({ orgId, webhookUrl: body.webhookUrl, timezone: validatedTimezone, enabled });
         return c.json({
           orgId: settings.orgId,
           webhookUrl: settings.webhookUrl,
