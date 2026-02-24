@@ -15,6 +15,8 @@ import type {
   ModelTokenPricing,
   ModelPricing,
   DetailedTokenUsage,
+  SlackSettings,
+  SlackSettingsStore,
 } from './interfaces';
 
 export interface D1StoreOptions {
@@ -850,6 +852,74 @@ export function createD1PricingStore(db: D1Database): PricingStore {
     async listModelsByCategory(category: string): Promise<ModelRecord[]> {
       await ensureCache();
       return modelCache!.filter((m) => m.category === category);
+    },
+  };
+}
+
+export function createD1SlackSettingsStore(db: D1Database): SlackSettingsStore {
+  type SlackRow = {
+    org_id: string;
+    webhook_url: string;
+    timezone: string;
+    enabled: number;
+    created_at: string;
+    updated_at: string;
+  };
+
+  function rowToSettings(row: SlackRow): SlackSettings {
+    return {
+      orgId: row.org_id,
+      webhookUrl: row.webhook_url,
+      timezone: row.timezone,
+      enabled: row.enabled === 1,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    };
+  }
+
+  return {
+    async get(orgId: string): Promise<SlackSettings | undefined> {
+      const row = await db
+        .prepare('SELECT * FROM slack_settings WHERE org_id = ?')
+        .bind(orgId)
+        .first<SlackRow>();
+      return row ? rowToSettings(row) : undefined;
+    },
+
+    async upsert(settings: Pick<SlackSettings, 'orgId' | 'webhookUrl' | 'timezone' | 'enabled'>): Promise<SlackSettings> {
+      const now = new Date().toISOString();
+      await db
+        .prepare(
+          `INSERT INTO slack_settings (org_id, webhook_url, timezone, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (org_id) DO UPDATE SET
+             webhook_url = excluded.webhook_url,
+             timezone = excluded.timezone,
+             enabled = excluded.enabled,
+             updated_at = excluded.updated_at`
+        )
+        .bind(settings.orgId, settings.webhookUrl, settings.timezone, settings.enabled ? 1 : 0, now, now)
+        .run();
+      const row = await db
+        .prepare('SELECT * FROM slack_settings WHERE org_id = ?')
+        .bind(settings.orgId)
+        .first<SlackRow>();
+      return rowToSettings(row!);
+    },
+
+    async delete(orgId: string): Promise<boolean> {
+      const result = await db
+        .prepare('DELETE FROM slack_settings WHERE org_id = ?')
+        .bind(orgId)
+        .run();
+      return (result.meta?.changes ?? 0) > 0;
+    },
+
+    async listEnabled(): Promise<SlackSettings[]> {
+      const { results } = await db
+        .prepare('SELECT * FROM slack_settings WHERE enabled = 1')
+        .all<SlackRow>();
+      return results.map(rowToSettings);
     },
   };
 }
