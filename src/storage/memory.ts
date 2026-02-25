@@ -17,7 +17,10 @@ import type {
   DetailedTokenUsage,
   SlackSettings,
   SlackSettingsStore,
+  SentimentLabel,
+  SentimentLabelStore,
 } from './interfaces';
+import { BUILTIN_LABELS } from '../sentiment/defaults';
 import { calculateCost as staticCalculateCost } from '../usage/pricing';
 
 interface StoredEndUserData {
@@ -538,6 +541,56 @@ export function createInMemorySlackSettingsStore(): SlackSettingsStore {
 
     async listEnabled(): Promise<SlackSettings[]> {
       return Array.from(store.values()).filter((s) => s.enabled);
+    },
+  };
+}
+
+export function createInMemoryLabelStore(): SentimentLabelStore {
+  // Map<orgId, Map<labelId, SentimentLabel>>
+  const store = new Map<string, Map<string, SentimentLabel>>();
+
+  function orgMap(orgId: string): Map<string, SentimentLabel> {
+    if (!store.has(orgId)) store.set(orgId, new Map());
+    return store.get(orgId)!;
+  }
+
+  function seed(orgId: string): void {
+    const map = orgMap(orgId);
+    if (map.size > 0) return;
+    const now = new Date();
+    for (const b of BUILTIN_LABELS) {
+      const id = crypto.randomUUID();
+      map.set(id, { id, orgId, ...b, createdAt: now, updatedAt: now });
+    }
+  }
+
+  return {
+    async getForOrg(orgId: string): Promise<SentimentLabel[]> {
+      seed(orgId);
+      return Array.from(orgMap(orgId).values()).sort((a, b) => a.sortOrder - b.sortOrder);
+    },
+
+    async create(orgId: string, fields: Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>): Promise<SentimentLabel> {
+      const now = new Date();
+      const label: SentimentLabel = { id: crypto.randomUUID(), orgId, ...fields, createdAt: now, updatedAt: now };
+      orgMap(orgId).set(label.id, label);
+      return label;
+    },
+
+    async update(id: string, orgId: string, fields: Partial<Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>>): Promise<SentimentLabel | undefined> {
+      const map = orgMap(orgId);
+      const existing = map.get(id);
+      if (!existing) return undefined;
+      const updated = { ...existing, ...fields, updatedAt: new Date() };
+      map.set(id, updated);
+      return updated;
+    },
+
+    async delete(id: string, orgId: string): Promise<boolean> {
+      const map = store.get(orgId);
+      if (!map?.has(id)) return false;
+      map.delete(id);
+      return true;
     },
   };
 }

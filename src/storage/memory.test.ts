@@ -4,6 +4,7 @@ import {
   createInMemoryRequestLogStore,
   createInMemoryPricingStore,
   createInMemorySlackSettingsStore,
+  createInMemoryLabelStore,
 } from './memory';
 import { calculateCost, calculateDetailedCost } from '../usage/pricing';
 import type { StoredRequestLog } from './interfaces';
@@ -291,5 +292,78 @@ describe('createInMemoryRequestLogStore — getUnanalyzed / setAnalysisLabels', 
     expect(log?.analysisLabels).toEqual(['task_failure', 'user_frustration']);
     const unanalyzed = await store.getUnanalyzed(10);
     expect(unanalyzed).toHaveLength(0);
+  });
+});
+
+describe('createInMemoryLabelStore', () => {
+  it('seeds 7 built-in defaults on first getForOrg', async () => {
+    const store = createInMemoryLabelStore();
+    const labels = await store.getForOrg('org-1');
+    expect(labels).toHaveLength(7);
+    expect(labels.map(l => l.name)).toContain('success');
+  });
+
+  it('returns same labels on second call (no duplicate seeding)', async () => {
+    const store = createInMemoryLabelStore();
+    await store.getForOrg('org-1');
+    const labels = await store.getForOrg('org-1');
+    expect(labels).toHaveLength(7);
+  });
+
+  it('create adds a new label', async () => {
+    const store = createInMemoryLabelStore();
+    await store.getForOrg('org-1'); // seed defaults
+    const label = await store.create('org-1', {
+      name: 'custom',
+      displayName: 'Custom',
+      description: 'a custom label',
+      color: '#abcdef',
+      sortOrder: 10,
+    });
+    expect(label.id).toBeDefined();
+    expect(label.orgId).toBe('org-1');
+    const labels = await store.getForOrg('org-1');
+    expect(labels).toHaveLength(8);
+  });
+
+  it('update changes fields', async () => {
+    const store = createInMemoryLabelStore();
+    const labels = await store.getForOrg('org-1');
+    const first = labels[0];
+    const updated = await store.update(first.id, 'org-1', { displayName: 'New Name' });
+    expect(updated?.displayName).toBe('New Name');
+  });
+
+  it('update returns undefined for unknown id', async () => {
+    const store = createInMemoryLabelStore();
+    await store.getForOrg('org-1');
+    const result = await store.update('bad-id', 'org-1', { displayName: 'X' });
+    expect(result).toBeUndefined();
+  });
+
+  it('delete removes a label', async () => {
+    const store = createInMemoryLabelStore();
+    const labels = await store.getForOrg('org-1');
+    const first = labels[0];
+    const deleted = await store.delete(first.id, 'org-1');
+    expect(deleted).toBe(true);
+    const remaining = await store.getForOrg('org-1');
+    expect(remaining).toHaveLength(6);
+  });
+
+  it('delete returns false for wrong orgId', async () => {
+    const store = createInMemoryLabelStore();
+    const labels = await store.getForOrg('org-1');
+    const first = labels[0];
+    const deleted = await store.delete(first.id, 'org-2');
+    expect(deleted).toBe(false);
+  });
+
+  it('orgs are isolated — org-1 changes do not affect org-2', async () => {
+    const store = createInMemoryLabelStore();
+    const org1 = await store.getForOrg('org-1');
+    await store.delete(org1[0].id, 'org-1');
+    const org2 = await store.getForOrg('org-2');
+    expect(org2).toHaveLength(7);
   });
 });
