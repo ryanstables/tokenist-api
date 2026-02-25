@@ -697,6 +697,71 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         return c.json({ processed: total });
       });
 
+      // Sentiment label CRUD
+      const sentimentLabelCreateSchema = z.object({
+        name: z.string().min(1).max(64),
+        displayName: z.string().min(1).max(64),
+        description: z.string().min(1).max(500),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+        sortOrder: z.number().int().min(0).max(999),
+      });
+
+      const sentimentLabelUpdateSchema = sentimentLabelCreateSchema.partial();
+
+      app.get('/admin/orgs/:orgId/sentiment-labels', async (c) => {
+        if (!sentimentLabelStore) {
+          return c.json({ error: 'not configured' }, 500);
+        }
+        const orgId = c.req.param('orgId');
+        const labels = await sentimentLabelStore.getForOrg(orgId);
+        return c.json({ labels });
+      });
+
+      app.post('/admin/orgs/:orgId/sentiment-labels', async (c) => {
+        if (!sentimentLabelStore) {
+          return c.json({ error: 'not configured' }, 500);
+        }
+        const orgId = c.req.param('orgId');
+        const body = await c.req.json().catch(() => ({}));
+        const result = sentimentLabelCreateSchema.safeParse(body);
+        if (!result.success) {
+          return c.json({ error: result.error.issues[0]?.message ?? 'Invalid request' }, 400);
+        }
+        const label = await sentimentLabelStore.create(orgId, result.data);
+        return c.json(label, 201);
+      });
+
+      app.put('/admin/orgs/:orgId/sentiment-labels/:labelId', async (c) => {
+        if (!sentimentLabelStore) {
+          return c.json({ error: 'not configured' }, 500);
+        }
+        const orgId = c.req.param('orgId');
+        const labelId = c.req.param('labelId');
+        const body = await c.req.json().catch(() => ({}));
+        const result = sentimentLabelUpdateSchema.safeParse(body);
+        if (!result.success) {
+          return c.json({ error: result.error.issues[0]?.message ?? 'Invalid request' }, 400);
+        }
+        const updated = await sentimentLabelStore.update(labelId, orgId, result.data);
+        if (!updated) {
+          return c.json({ error: 'not found' }, 404);
+        }
+        return c.json(updated);
+      });
+
+      app.delete('/admin/orgs/:orgId/sentiment-labels/:labelId', async (c) => {
+        if (!sentimentLabelStore) {
+          return c.json({ error: 'not configured' }, 500);
+        }
+        const orgId = c.req.param('orgId');
+        const labelId = c.req.param('labelId');
+        const deleted = await sentimentLabelStore.delete(labelId, orgId);
+        if (!deleted) {
+          return c.json({ error: 'not found' }, 404);
+        }
+        return c.json({ ok: true });
+      });
+
       app.get('/admin/orgs/:orgId/logs', async (c) => {
         const orgId = c.req.param('orgId');
         const limit = Number.parseInt(c.req.query('limit') ?? '25', 10);
