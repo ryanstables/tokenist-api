@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   createInMemoryUsageStore,
+  createInMemoryRequestLogStore,
   createInMemoryPricingStore,
   createInMemorySlackSettingsStore,
 } from './memory';
 import { calculateCost, calculateDetailedCost } from '../usage/pricing';
+import type { StoredRequestLog } from './interfaces';
 
 describe('createInMemoryUsageStore', () => {
   describe('updateUsage with requestCost', () => {
@@ -246,5 +248,48 @@ describe('createInMemorySlackSettingsStore', () => {
     const enabled = await store.listEnabled();
     expect(enabled).toHaveLength(1);
     expect(enabled[0].orgId).toBe('org-1');
+  });
+});
+
+describe('createInMemoryRequestLogStore — getUnanalyzed / setAnalysisLabels', () => {
+  function makeLog(id: string): StoredRequestLog {
+    return {
+      id,
+      endUserId: 'user-1',
+      orgId: 'org-1',
+      conversationId: 'conv-1',
+      model: 'gpt-4o',
+      requestBody: '{"messages":[]}',
+      responseBody: null,
+      status: 'success',
+      createdAt: new Date(),
+    };
+  }
+
+  it('getUnanalyzed returns logs where analysisLabels is null/undefined', async () => {
+    const store = createInMemoryRequestLogStore();
+    await store.create(makeLog('log-1'));
+    await store.create(makeLog('log-2'));
+    const unanalyzed = await store.getUnanalyzed(10);
+    expect(unanalyzed).toHaveLength(2);
+  });
+
+  it('getUnanalyzed excludes logs that already have labels', async () => {
+    const store = createInMemoryRequestLogStore();
+    await store.create(makeLog('log-1'));
+    await store.create({ ...makeLog('log-2'), analysisLabels: ['win'] });
+    const unanalyzed = await store.getUnanalyzed(10);
+    expect(unanalyzed).toHaveLength(1);
+    expect(unanalyzed[0].id).toBe('log-1');
+  });
+
+  it('setAnalysisLabels updates the log and removes it from unanalyzed', async () => {
+    const store = createInMemoryRequestLogStore();
+    await store.create(makeLog('log-1'));
+    await store.setAnalysisLabels('log-1', ['task_failure', 'user_frustration']);
+    const log = await store.getById('log-1');
+    expect(log?.analysisLabels).toEqual(['task_failure', 'user_frustration']);
+    const unanalyzed = await store.getUnanalyzed(10);
+    expect(unanalyzed).toHaveLength(0);
   });
 });

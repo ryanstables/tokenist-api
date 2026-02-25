@@ -362,6 +362,18 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
     async getById(id: string): Promise<StoredRequestLog | undefined> {
       return logs.find((l) => l.id === id);
     },
+
+    async getUnanalyzed(limit: number): Promise<StoredRequestLog[]> {
+      return logs
+        .filter((l) => l.analysisLabels == null)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .slice(0, limit);
+    },
+
+    async setAnalysisLabels(id: string, labels: string[]): Promise<void> {
+      const log = logs.find((l) => l.id === id);
+      if (log) log.analysisLabels = labels;
+    },
   };
 }
 
