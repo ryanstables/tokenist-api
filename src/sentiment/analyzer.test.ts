@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { extractContent, parseLabels, handleSentimentAnalysis } from './analyzer';
+import { createInMemoryRequestLogStore } from '../storage/memory';
 
 describe('extractContent', () => {
   it('extracts last user message and assistant response', () => {
@@ -72,9 +73,72 @@ describe('parseLabels', () => {
 describe('handleSentimentAnalysis', () => {
   it('skips gracefully when apiKey is empty', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const fakeDb = {} as D1Database;
-    await expect(handleSentimentAnalysis(fakeDb, '')).resolves.toBeUndefined();
+    const store = createInMemoryRequestLogStore();
+    await expect(handleSentimentAnalysis(store, '')).resolves.toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('returns without fetching when no unanalyzed logs exist', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const store = createInMemoryRequestLogStore();
+    await handleSentimentAnalysis(store, 'sk-test');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('classifies unanalyzed logs and stores results', async () => {
+    const store = createInMemoryRequestLogStore();
+    await store.create({
+      id: 'log-1',
+      endUserId: 'u1',
+      conversationId: 'c1',
+      model: 'gpt-4o',
+      requestBody: JSON.stringify({ messages: [{ role: 'user', content: 'Thanks, that was great!' }] }),
+      responseBody: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'You are welcome!' } }] }),
+      status: 'success',
+      createdAt: new Date(),
+    });
+
+    // Mock the fetch to return ["win"]
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: '["win"]' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    await handleSentimentAnalysis(store, 'sk-test');
+
+    const log = await store.getById('log-1');
+    expect(log?.analysisLabels).toEqual(['win']);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
+  });
+
+  it('writes empty array on classification failure to prevent infinite retry', async () => {
+    const store = createInMemoryRequestLogStore();
+    await store.create({
+      id: 'log-1',
+      endUserId: 'u1',
+      conversationId: 'c1',
+      model: 'gpt-4o',
+      requestBody: '{}',
+      responseBody: null,
+      status: 'success',
+      createdAt: new Date(),
+    });
+
+    // Mock fetch to fail
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('Internal Server Error', { status: 500 })
+    );
+
+    await handleSentimentAnalysis(store, 'sk-test');
+
+    const log = await store.getById('log-1');
+    // Should be [] not null — prevents retry and documents the design
+    expect(log?.analysisLabels).toEqual([]);
     fetchSpy.mockRestore();
   });
 });

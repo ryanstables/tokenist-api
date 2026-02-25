@@ -53,6 +53,7 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     await handleSlackReports(env.DB);
-    await handleSentimentAnalysis(env.DB, env.OPENAI_API_KEY ?? '');
+    const requestLogStore = createD1RequestLogStore(env.DB);
+    await handleSentimentAnalysis(requestLogStore, env.OPENAI_API_KEY ?? '');
   },
 };

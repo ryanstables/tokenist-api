@@ -1,4 +1,4 @@
-import { createD1RequestLogStore } from '../storage/d1';
+import type { RequestLogStore } from '../storage/interfaces';
 
 const VALID_LABELS = [
   'forgetting',
@@ -96,11 +96,10 @@ export async function classifyRequest(
 }
 
 export async function handleSentimentAnalysis(
-  db: D1Database,
+  store: RequestLogStore,
   apiKey: string
 ): Promise<void> {
   if (!apiKey) return;
-  const store = createD1RequestLogStore(db);
   const logs = await store.getUnanalyzed(BATCH_SIZE);
   if (logs.length === 0) return;
   const settled = await Promise.allSettled(
@@ -111,6 +110,8 @@ export async function handleSentimentAnalysis(
         await store.setAnalysisLabels(log.id, labels);
       } catch (err) {
         console.error(`[sentiment] Failed to classify log ${log.id}:`, err);
+        // Write empty array to prevent infinite retry of permanently failing logs.
+        // Transient failures will be retried on next cron run if not yet set.
         await store.setAnalysisLabels(log.id, []);
       }
     })
