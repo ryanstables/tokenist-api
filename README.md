@@ -694,6 +694,55 @@ npm test
 npm run build
 ```
 
+## Sentiment Analysis
+
+Every logged request/response pair is automatically classified by `gpt-4o-mini` on a cron schedule. Results appear as label pills in the dashboard **Logs** table and are aggregated on the **Insights** page.
+
+### Labels
+
+| Label | Meaning |
+|---|---|
+| `win` | User praised or thanked the assistant |
+| `laziness` | Assistant gave a blank or minimal response |
+| `forgetting` | Assistant forgot context the user had already provided |
+| `task_failure` | Assistant failed or refused to complete the task |
+| `user_frustration` | User expressed frustration or disappointment |
+| `nsfw` | Explicit or harmful content was involved |
+| `jailbreaking` | User attempted to bypass assistant guidelines |
+
+### When it runs
+
+Analysis is triggered by the Cloudflare Worker `scheduled` handler — not by HTTP requests. The cron runs at the top of every hour (`0 * * * *`, configured in `wrangler.toml`). Each run processes up to 50 unanalyzed logs.
+
+A log's `analysisLabels` field in D1 transitions:
+
+- `NULL` → pending (spinning indicator in the dashboard)
+- `[]` → analyzed, no labels matched (shown as `—`)
+- `["win", ...]` → analyzed with labels (colored pills)
+
+If classification fails permanently, the log is written as `[]` to prevent infinite retry. Logs still `NULL` are retried on the next run.
+
+### Triggering locally
+
+`wrangler dev` does not fire scheduled events automatically. To run analysis during local development:
+
+```bash
+curl "http://localhost:8081/__scheduled?cron=0+*+*+*+*"
+```
+
+### Requirements
+
+`OPENAI_API_KEY` must be present in the Worker environment. If missing or empty, `handleSentimentAnalysis` returns immediately without error and logs remain pending.
+
+### Implementation files
+
+| File | Role |
+|---|---|
+| `src/sentiment/analyzer.ts` | `extractContent`, `classifyRequest`, `handleSentimentAnalysis` |
+| `src/worker.ts` | Calls `handleSentimentAnalysis` from the `scheduled` handler |
+| `wrangler.toml` | Cron schedule (`0 * * * *`) |
+| `src/storage/interfaces.ts` | `RequestLogStore.getUnanalyzed` / `setAnalysisLabels` |
+
 ## License
 
 MIT
