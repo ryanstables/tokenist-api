@@ -184,3 +184,23 @@ export interface SlackSettingsStore {
   delete(orgId: string): Promise<boolean>;
   listEnabled(): Promise<SlackSettings[]>;
 }
+
+export interface SentimentLabel {
+  id: string;
+  orgId: string;
+  name: string;         // slug, e.g. "success" — must be unique within an org
+  displayName: string;  // shown in UI, e.g. "Success"
+  description: string;  // injected verbatim into the GPT system prompt
+  color: string;        // hex, e.g. "#22c55e"
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SentimentLabelStore {
+  /** Returns org's labels, seeding the 7 built-in defaults if the org has none. */
+  getForOrg(orgId: string): Promise<SentimentLabel[]>;
+  create(orgId: string, fields: Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>): Promise<SentimentLabel>;
+  update(id: string, orgId: string, fields: Partial<Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>>): Promise<SentimentLabel | undefined>;
+  delete(id: string, orgId: string): Promise<boolean>;
+}
