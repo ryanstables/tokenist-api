@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore, SentimentLabelStore } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
@@ -26,6 +26,7 @@ export interface AdminRouteDeps {
   requestLogStore?: RequestLogStore;
   pricingStore?: PricingStore;
   slackSettingsStore?: SlackSettingsStore;
+  sentimentLabelStore?: SentimentLabelStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -126,7 +127,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -684,10 +685,13 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         if (!apiKey) {
           return c.json({ error: 'OPENAI_API_KEY not configured' }, 500);
         }
+        if (!sentimentLabelStore) {
+          return c.json({ error: 'sentimentLabelStore not configured' }, 500);
+        }
         let total = 0;
         let batch: number;
         do {
-          batch = await handleSentimentAnalysis(requestLogStore, apiKey);
+          batch = await handleSentimentAnalysis(requestLogStore, sentimentLabelStore, apiKey);
           total += batch;
         } while (batch > 0);
         return c.json({ processed: total });

@@ -88,7 +88,7 @@ export interface TokenistInstance {
 
 export function createTokenist(config: TokenistConfig): TokenistInstance {
   const logger = config.logger ?? createLogger(config.logLevel ?? 'info');
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore } = config;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore } = config;
 
   // Build admin/API routes
   const adminApp = createAdminRoutes({
@@ -99,6 +99,7 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
     requestLogStore,
     pricingStore,
     slackSettingsStore,
+    sentimentLabelStore,
     logger,
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,

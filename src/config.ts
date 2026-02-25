@@ -1,6 +1,6 @@
 import type { UsageWindow } from './types/user';
 import type { LogLevel, Logger } from './logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore, SlackSettingsStore } from './storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore, SlackSettingsStore, SentimentLabelStore } from './storage/interfaces';
 
 export interface TokenistConfig {
   defaultMaxCostUsd?: number;
@@ -18,5 +18,6 @@ export interface TokenistConfig {
   requestLogStore?: RequestLogStore;
   pricingStore?: PricingStore;
   slackSettingsStore?: SlackSettingsStore;
+  sentimentLabelStore?: SentimentLabelStore;
   logger?: Logger;
 }

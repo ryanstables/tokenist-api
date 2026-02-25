@@ -7,6 +7,7 @@ import {
   createInMemoryApiKeyStore,
   createInMemoryRequestLogStore,
   createInMemoryPricingStore,
+  createInMemoryLabelStore,
 } from '../storage/memory';
 import { createLogger } from '../logger';
 import type { RequestLogStore } from '../storage/interfaces';
@@ -23,6 +24,7 @@ function createTestApp(requestLogStore: RequestLogStore, openaiApiKey?: string) 
     userStore: createInMemoryUserStore(),
     apiKeyStore: createInMemoryApiKeyStore(),
     requestLogStore,
+    sentimentLabelStore: createInMemoryLabelStore(),
     pricingStore: createInMemoryPricingStore(),
     logger: createLogger('error'),
     jwtSecret: JWT_SECRET,

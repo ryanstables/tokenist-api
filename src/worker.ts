@@ -7,6 +7,7 @@ import {
   createD1RequestLogStore,
   createD1PricingStore,
   createD1SlackSettingsStore,
+  createD1SentimentLabelStore,
 } from './storage/d1';
 import { handleSlackReports } from './slack/reporter';
 import { handleSentimentAnalysis } from './sentiment/analyzer';
@@ -30,6 +31,7 @@ export default {
 
     const pricingStore = createD1PricingStore(env.DB);
     const slackSettingsStore = createD1SlackSettingsStore(env.DB);
+    const sentimentLabelStore = createD1SentimentLabelStore(env.DB);
 
     const tokenist = createTokenist({
       jwtSecret: env.JWT_SECRET,
@@ -47,6 +49,7 @@ export default {
       requestLogStore: createD1RequestLogStore(env.DB),
       pricingStore,
       slackSettingsStore,
+      sentimentLabelStore,
     });
 
     return tokenist.fetch(request);
@@ -55,6 +58,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     await handleSlackReports(env.DB);
     const requestLogStore = createD1RequestLogStore(env.DB);
-    await handleSentimentAnalysis(requestLogStore, env.OPENAI_API_KEY ?? '');
+    const sentimentLabelStore = createD1SentimentLabelStore(env.DB);
+    await handleSentimentAnalysis(requestLogStore, sentimentLabelStore, env.OPENAI_API_KEY ?? '');
   },
 };
