@@ -33,6 +33,7 @@ export default {
 
     const tokenist = createTokenist({
       jwtSecret: env.JWT_SECRET,
+      openaiApiKey: env.OPENAI_API_KEY,
       defaultMaxCostUsd,
       defaultMaxTotalTokens,
       usageStore: createD1UsageStore(env.DB, {

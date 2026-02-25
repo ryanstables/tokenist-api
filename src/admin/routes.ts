@@ -28,6 +28,7 @@ export interface AdminRouteDeps {
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
+  openaiApiKey?: string;
 }
 
 const blockRequestSchema = z.object({
@@ -124,7 +125,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, logger, jwtSecret, jwtExpiresIn } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
