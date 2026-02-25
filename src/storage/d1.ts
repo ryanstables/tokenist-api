@@ -495,6 +495,7 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
     cost_usd: number | null;
     latency_ms: number | null;
     created_at: string;
+    analysis_labels: string | null;
   };
 
   function rowToLog(row: LogRow): StoredRequestLog {
@@ -522,6 +523,9 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
       reasoningTokens: row.reasoning_tokens,
       costUsd: row.cost_usd,
       latencyMs: row.latency_ms,
+      analysisLabels: row.analysis_labels !== null
+        ? (() => { try { return JSON.parse(row.analysis_labels!); } catch { return []; } })()
+        : null,
       createdAt: new Date(row.created_at),
     };
   }
@@ -647,6 +651,23 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
         .bind(id)
         .first<LogRow>();
       return row ? rowToLog(row) : undefined;
+    },
+
+    async getUnanalyzed(limit: number): Promise<StoredRequestLog[]> {
+      const { results } = await db
+        .prepare(
+          'SELECT * FROM request_logs WHERE analysis_labels IS NULL ORDER BY created_at ASC LIMIT ?'
+        )
+        .bind(limit)
+        .all<LogRow>();
+      return results.map(rowToLog);
+    },
+
+    async setAnalysisLabels(id: string, labels: string[]): Promise<void> {
+      await db
+        .prepare('UPDATE request_logs SET analysis_labels = ? WHERE id = ?')
+        .bind(JSON.stringify(labels), id)
+        .run();
     },
   };
 }
