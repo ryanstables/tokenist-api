@@ -98,10 +98,10 @@ export async function classifyRequest(
 export async function handleSentimentAnalysis(
   store: RequestLogStore,
   apiKey: string
-): Promise<void> {
-  if (!apiKey) return;
+): Promise<number> {
+  if (!apiKey) return 0;
   const logs = await store.getUnanalyzed(BATCH_SIZE);
-  if (logs.length === 0) return;
+  if (logs.length === 0) return 0;
   const settled = await Promise.allSettled(
     logs.map(async (log) => {
       try {
@@ -120,4 +120,5 @@ export async function handleSentimentAnalysis(
   if (failures.length > 0) {
     console.error(`[sentiment] ${failures.length}/${logs.length} classifications failed`);
   }
+  return logs.length;
 }

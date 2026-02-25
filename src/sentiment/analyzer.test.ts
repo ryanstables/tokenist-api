@@ -74,7 +74,8 @@ describe('handleSentimentAnalysis', () => {
   it('skips gracefully when apiKey is empty', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const store = createInMemoryRequestLogStore();
-    await expect(handleSentimentAnalysis(store, '')).resolves.toBeUndefined();
+    const result = await handleSentimentAnalysis(store, '');
+    expect(result).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -82,7 +83,8 @@ describe('handleSentimentAnalysis', () => {
   it('returns without fetching when no unanalyzed logs exist', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const store = createInMemoryRequestLogStore();
-    await handleSentimentAnalysis(store, 'sk-test');
+    const result = await handleSentimentAnalysis(store, 'sk-test');
+    expect(result).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
@@ -108,7 +110,8 @@ describe('handleSentimentAnalysis', () => {
       )
     );
 
-    await handleSentimentAnalysis(store, 'sk-test');
+    const result = await handleSentimentAnalysis(store, 'sk-test');
+    expect(result).toBe(1);
 
     const log = await store.getById('log-1');
     expect(log?.analysisLabels).toEqual(['win']);
@@ -134,7 +137,8 @@ describe('handleSentimentAnalysis', () => {
       new Response('Internal Server Error', { status: 500 })
     );
 
-    await handleSentimentAnalysis(store, 'sk-test');
+    const result = await handleSentimentAnalysis(store, 'sk-test');
+    expect(result).toBe(1);
 
     const log = await store.getById('log-1');
     // Should be [] not null — prevents retry and documents the design
