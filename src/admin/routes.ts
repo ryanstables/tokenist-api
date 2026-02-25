@@ -9,6 +9,7 @@ import { hashPassword, verifyPassword } from '../auth/password';
 import { createAuthMiddleware, createApiKeyMiddleware } from './middleware';
 import { getPeriodKey, getRolling24hPeriodKeys } from '../storage/period';
 import { calculateCost as staticCalculateCost } from '../usage/pricing';
+import { handleSentimentAnalysis } from '../sentiment/analyzer';
 
 type Env = {
   Variables: {
@@ -676,6 +677,20 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         const to = c.req.query('to');
         const summary = await requestLogStore.getSentimentSummary(orgId, { from, to });
         return c.json(summary);
+      });
+
+      app.post('/admin/sentiment/analyze-pending', async (c) => {
+        const apiKey = openaiApiKey ?? '';
+        if (!apiKey) {
+          return c.json({ error: 'OPENAI_API_KEY not configured' }, 503);
+        }
+        let total = 0;
+        let batch: number;
+        do {
+          batch = await handleSentimentAnalysis(requestLogStore, apiKey);
+          total += batch;
+        } while (batch > 0);
+        return c.json({ processed: total });
       });
 
       app.get('/admin/orgs/:orgId/logs', async (c) => {
