@@ -665,6 +665,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         },
         costUsd: log.costUsd ?? null,
         latencyMs: log.latencyMs,
+        analysisLabels: log.analysisLabels ?? null,
         createdAt: log.createdAt.toISOString(),
       });
 
