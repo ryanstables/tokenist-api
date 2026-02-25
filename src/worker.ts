@@ -9,12 +9,14 @@ import {
   createD1SlackSettingsStore,
 } from './storage/d1';
 import { handleSlackReports } from './slack/reporter';
+import { handleSentimentAnalysis } from './sentiment/analyzer';
 
 interface Env {
   JWT_SECRET: string;
   DEFAULT_MAX_COST_USD?: string;
   DEFAULT_MAX_TOTAL_TOKENS?: string;
   DB: D1Database;
+  OPENAI_API_KEY?: string;
 }
 
 export default {
@@ -51,5 +53,6 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     await handleSlackReports(env.DB);
+    await handleSentimentAnalysis(env.DB, env.OPENAI_API_KEY ?? '');
   },
 };
