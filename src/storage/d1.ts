@@ -17,7 +17,10 @@ import type {
   DetailedTokenUsage,
   SlackSettings,
   SlackSettingsStore,
+  SentimentLabel,
+  SentimentLabelStore,
 } from './interfaces';
+import { BUILTIN_LABELS } from '../sentiment/defaults';
 
 export interface D1StoreOptions {
   defaultMaxCostUsd?: number;
@@ -1013,6 +1016,117 @@ export function createD1SlackSettingsStore(db: D1Database): SlackSettingsStore {
         .prepare('SELECT * FROM slack_settings WHERE enabled = 1')
         .all<SlackRow>();
       return results.map(rowToSettings);
+    },
+  };
+}
+
+export function createD1SentimentLabelStore(db: D1Database): SentimentLabelStore {
+  type LabelRow = {
+    id: string;
+    org_id: string;
+    name: string;
+    display_name: string;
+    description: string;
+    color: string;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
+  };
+
+  function rowToLabel(row: LabelRow): SentimentLabel {
+    return {
+      id: row.id,
+      orgId: row.org_id,
+      name: row.name,
+      displayName: row.display_name,
+      description: row.description,
+      color: row.color,
+      sortOrder: row.sort_order,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    };
+  }
+
+  async function seedDefaults(orgId: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const b of BUILTIN_LABELS) {
+      const id = crypto.randomUUID();
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO sentiment_labels
+             (id, org_id, name, display_name, description, color, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(id, orgId, b.name, b.displayName, b.description, b.color, b.sortOrder, now, now)
+        .run();
+    }
+  }
+
+  return {
+    async getForOrg(orgId: string): Promise<SentimentLabel[]> {
+      const { results } = await db
+        .prepare('SELECT * FROM sentiment_labels WHERE org_id = ? ORDER BY sort_order ASC')
+        .bind(orgId)
+        .all<LabelRow>();
+      if (results.length === 0) {
+        await seedDefaults(orgId);
+        const seeded = await db
+          .prepare('SELECT * FROM sentiment_labels WHERE org_id = ? ORDER BY sort_order ASC')
+          .bind(orgId)
+          .all<LabelRow>();
+        return seeded.results.map(rowToLabel);
+      }
+      return results.map(rowToLabel);
+    },
+
+    async create(orgId: string, fields: Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>): Promise<SentimentLabel> {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await db
+        .prepare(
+          `INSERT INTO sentiment_labels
+             (id, org_id, name, display_name, description, color, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(id, orgId, fields.name, fields.displayName, fields.description, fields.color, fields.sortOrder, now, now)
+        .run();
+      const row = await db
+        .prepare('SELECT * FROM sentiment_labels WHERE id = ?')
+        .bind(id)
+        .first<LabelRow>();
+      if (!row) throw new Error(`sentiment_labels row missing after insert for org ${orgId}`);
+      return rowToLabel(row);
+    },
+
+    async update(id: string, orgId: string, fields: Partial<Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>>): Promise<SentimentLabel | undefined> {
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      if (fields.name !== undefined)        { sets.push('name = ?');         vals.push(fields.name); }
+      if (fields.displayName !== undefined) { sets.push('display_name = ?'); vals.push(fields.displayName); }
+      if (fields.description !== undefined) { sets.push('description = ?');  vals.push(fields.description); }
+      if (fields.color !== undefined)       { sets.push('color = ?');        vals.push(fields.color); }
+      if (fields.sortOrder !== undefined)   { sets.push('sort_order = ?');   vals.push(fields.sortOrder); }
+      if (sets.length === 0) return undefined;
+      sets.push('updated_at = ?');
+      vals.push(new Date().toISOString());
+      vals.push(id, orgId);
+      await db
+        .prepare(`UPDATE sentiment_labels SET ${sets.join(', ')} WHERE id = ? AND org_id = ?`)
+        .bind(...vals)
+        .run();
+      const row = await db
+        .prepare('SELECT * FROM sentiment_labels WHERE id = ? AND org_id = ?')
+        .bind(id, orgId)
+        .first<LabelRow>();
+      return row ? rowToLabel(row) : undefined;
+    },
+
+    async delete(id: string, orgId: string): Promise<boolean> {
+      const result = await db
+        .prepare('DELETE FROM sentiment_labels WHERE id = ? AND org_id = ?')
+        .bind(id, orgId)
+        .run();
+      return (result.meta?.changes ?? 0) > 0;
     },
   };
 }

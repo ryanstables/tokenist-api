@@ -139,3 +139,19 @@ CREATE TABLE IF NOT EXISTS slack_settings (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Per-org custom sentiment label definitions
+CREATE TABLE IF NOT EXISTS sentiment_labels (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#6366f1',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(org_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_sentiment_labels_org_id ON sentiment_labels(org_id);
+-- Migration: run the CREATE TABLE IF NOT EXISTS above on existing databases.
