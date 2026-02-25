@@ -92,6 +92,7 @@ export interface StoredRequestLog {
   // Per-request cost
   costUsd?: number | null;
   latencyMs?: number | null;
+  analysisLabels?: string[] | null;
   createdAt: Date;
 }
 
@@ -111,6 +112,8 @@ export interface RequestLogStore {
     opts: { limit: number; offset: number; from?: string; to?: string }
   ): Promise<{ logs: StoredRequestLog[]; total: number }>;
   getById(id: string): Promise<StoredRequestLog | undefined>;
+  getUnanalyzed(limit: number): Promise<StoredRequestLog[]>;
+  setAnalysisLabels(id: string, labels: string[]): Promise<void>;
 }
 
 export interface ModelRecord {

@@ -86,8 +86,11 @@ CREATE TABLE IF NOT EXISTS request_logs (
   -- Per-request cost
   cost_usd REAL,
   latency_ms REAL,
+  -- Sentiment analysis labels (NULL = unanalyzed, JSON array string = analyzed)
+  analysis_labels TEXT,
   created_at TEXT NOT NULL
 );
+-- Migration: ALTER TABLE request_logs ADD COLUMN analysis_labels TEXT;
 CREATE INDEX IF NOT EXISTS idx_request_logs_end_user_id ON request_logs(end_user_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_org_id ON request_logs(org_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
