@@ -3,12 +3,12 @@ import type { LogLevel, Logger } from './logger';
 import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore, SlackSettingsStore } from './storage/interfaces';
 
 export interface TokenistConfig {
-  openaiApiKey?: string;
   defaultMaxCostUsd?: number;
   defaultMaxTotalTokens?: number;
   defaultUsageWindow?: UsageWindow;
   jwtSecret: string;
   jwtExpiresIn?: string;
+  openaiApiKey?: string;
   logLevel?: LogLevel;
 
   usageStore: UsageStore;
