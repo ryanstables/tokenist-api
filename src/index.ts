@@ -21,6 +21,8 @@ export type {
   ModelRecord,
   ModelTokenPricing,
   DetailedTokenUsage,
+  SentimentLabel,
+  SentimentLabelStore,
 } from './storage/interfaces';
 export type {
   UsageWindow,
@@ -60,6 +62,7 @@ export {
   createInMemoryApiKeyStore,
   createInMemoryRequestLogStore,
   createInMemoryPricingStore,
+  createInMemoryLabelStore,
 } from './storage/memory';
 export {
   createD1UsageStore,
@@ -68,6 +71,7 @@ export {
   createD1ApiKeyStore,
   createD1RequestLogStore,
   createD1PricingStore,
+  createD1SentimentLabelStore,
 } from './storage/d1';
 export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
