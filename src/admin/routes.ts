@@ -682,7 +682,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       app.post('/admin/sentiment/analyze-pending', async (c) => {
         const apiKey = openaiApiKey ?? '';
         if (!apiKey) {
-          return c.json({ error: 'OPENAI_API_KEY not configured' }, 503);
+          return c.json({ error: 'OPENAI_API_KEY not configured' }, 500);
         }
         let total = 0;
         let batch: number;

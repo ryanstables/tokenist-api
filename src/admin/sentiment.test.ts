@@ -44,7 +44,7 @@ async function seedLog(store: RequestLogStore, id: string) {
 }
 
 describe('POST /admin/sentiment/analyze-pending', () => {
-  it('returns 503 when openaiApiKey is not configured', async () => {
+  it('returns 500 when openaiApiKey is not configured', async () => {
     const store = createInMemoryRequestLogStore();
     const app = createTestApp(store, '');
 
@@ -52,7 +52,7 @@ describe('POST /admin/sentiment/analyze-pending', () => {
       new Request('http://localhost/admin/sentiment/analyze-pending', { method: 'POST' })
     );
 
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(500);
     const body: Json = await res.json();
     expect(body.error).toMatch(/OPENAI_API_KEY/);
   });
@@ -81,10 +81,12 @@ describe('POST /admin/sentiment/analyze-pending', () => {
 
     const app = createTestApp(store, 'sk-test');
 
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({ choices: [{ message: { content: '["win"]' } }] }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: '["win"]' } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
       )
     );
 
@@ -99,6 +101,10 @@ describe('POST /admin/sentiment/analyze-pending', () => {
 
     const log1 = await store.getById('log-1');
     expect(log1?.analysisLabels).toEqual(['win']);
+    const log2 = await store.getById('log-2');
+    expect(log2?.analysisLabels).toEqual(['win']);
+    const log3 = await store.getById('log-3');
+    expect(log3?.analysisLabels).toEqual(['win']);
 
     fetchSpy.mockRestore();
   });
