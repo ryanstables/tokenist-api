@@ -374,6 +374,50 @@ export function createInMemoryRequestLogStore(): RequestLogStore {
       const log = logs.find((l) => l.id === id);
       if (log) log.analysisLabels = labels;
     },
+
+    async getSentimentSummary(
+      orgId: string,
+      opts?: { from?: string; to?: string }
+    ): Promise<{
+      labelCounts: Record<string, number>;
+      totalAnalyzed: number;
+      totalPending: number;
+      dailyTrend: Array<{ date: string; counts: Record<string, number> }>;
+    }> {
+      const from = opts?.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const to = opts?.to ?? new Date().toISOString().slice(0, 10);
+
+      const orgLogs = Array.from(logs.values()).filter((l) => {
+        if (l.orgId !== orgId) return false;
+        const day = l.createdAt.toISOString().slice(0, 10);
+        return day >= from && day <= to;
+      });
+
+      const labelCounts: Record<string, number> = {};
+      const dailyMap: Record<string, Record<string, number>> = {};
+      let totalPending = 0;
+
+      for (const log of orgLogs) {
+        if (log.analysisLabels === null || log.analysisLabels === undefined) {
+          totalPending++;
+          continue;
+        }
+        const day = log.createdAt.toISOString().slice(0, 10);
+        for (const label of log.analysisLabels) {
+          labelCounts[label] = (labelCounts[label] ?? 0) + 1;
+          if (!dailyMap[day]) dailyMap[day] = {};
+          dailyMap[day][label] = (dailyMap[day][label] ?? 0) + 1;
+        }
+      }
+
+      const analyzed = orgLogs.filter((l) => l.analysisLabels !== null && l.analysisLabels !== undefined);
+
+      const dailyTrend = Object.entries(dailyMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, counts]) => ({ date, counts }));
+
+      return { labelCounts, totalAnalyzed: analyzed.length, totalPending, dailyTrend };
+    },
   };
 }
 

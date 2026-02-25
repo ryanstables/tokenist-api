@@ -669,6 +669,14 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         createdAt: log.createdAt.toISOString(),
       });
 
+      app.get('/admin/orgs/:orgId/sentiment-summary', async (c) => {
+        const orgId = c.req.param('orgId');
+        const from = c.req.query('from');
+        const to = c.req.query('to');
+        const summary = await requestLogStore.getSentimentSummary(orgId, { from, to });
+        return c.json(summary);
+      });
+
       app.get('/admin/orgs/:orgId/logs', async (c) => {
         const orgId = c.req.param('orgId');
         const limit = Number.parseInt(c.req.query('limit') ?? '25', 10);

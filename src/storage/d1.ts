@@ -669,6 +669,77 @@ export function createD1RequestLogStore(db: D1Database): RequestLogStore {
         .bind(JSON.stringify(labels), id)
         .run();
     },
+
+    async getSentimentSummary(
+      orgId: string,
+      opts?: { from?: string; to?: string }
+    ): Promise<{
+      labelCounts: Record<string, number>;
+      totalAnalyzed: number;
+      totalPending: number;
+      dailyTrend: Array<{ date: string; counts: Record<string, number> }>;
+    }> {
+      const from = opts?.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const to = opts?.to ?? new Date().toISOString().slice(0, 10);
+
+      // Fetch analyzed logs
+      const analyzed = await db
+        .prepare(
+          `SELECT analysis_labels, date(created_at) as day
+           FROM request_logs
+           WHERE org_id = ?
+             AND analysis_labels IS NOT NULL
+             AND date(created_at) >= ?
+             AND date(created_at) <= ?
+           LIMIT 10000`
+        )
+        .bind(orgId, from, to)
+        .all<{ analysis_labels: string; day: string }>();
+
+      // Fetch pending count
+      const pendingRow = await db
+        .prepare(
+          `SELECT COUNT(*) as count
+           FROM request_logs
+           WHERE org_id = ?
+             AND analysis_labels IS NULL
+             AND date(created_at) >= ?
+             AND date(created_at) <= ?`
+        )
+        .bind(orgId, from, to)
+        .first<{ count: number }>();
+
+      const totalPending = pendingRow?.count ?? 0;
+
+      // Aggregate label counts and daily trend in application code
+      const labelCounts: Record<string, number> = {};
+      const dailyMap: Record<string, Record<string, number>> = {};
+
+      for (const row of analyzed.results) {
+        let labels: string[] = [];
+        try {
+          labels = JSON.parse(row.analysis_labels) as string[];
+        } catch {
+          // skip malformed
+        }
+        for (const label of labels) {
+          labelCounts[label] = (labelCounts[label] ?? 0) + 1;
+          if (!dailyMap[row.day]) dailyMap[row.day] = {};
+          dailyMap[row.day][label] = (dailyMap[row.day][label] ?? 0) + 1;
+        }
+      }
+
+      const dailyTrend = Object.entries(dailyMap)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, counts]) => ({ date, counts }));
+
+      return {
+        labelCounts,
+        totalAnalyzed: analyzed.results.length,
+        totalPending,
+        dailyTrend,
+      };
+    },
   };
 }
 

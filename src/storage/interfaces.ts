@@ -114,6 +114,15 @@ export interface RequestLogStore {
   getById(id: string): Promise<StoredRequestLog | undefined>;
   getUnanalyzed(limit: number): Promise<StoredRequestLog[]>;
   setAnalysisLabels(id: string, labels: string[]): Promise<void>;
+  getSentimentSummary(
+    orgId: string,
+    opts?: { from?: string; to?: string }
+  ): Promise<{
+    labelCounts: Record<string, number>;
+    totalAnalyzed: number;
+    totalPending: number;
+    dailyTrend: Array<{ date: string; counts: Record<string, number> }>;
+  }>;
 }
 
 export interface ModelRecord {
