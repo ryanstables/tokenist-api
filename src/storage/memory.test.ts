@@ -277,7 +277,7 @@ describe('createInMemoryRequestLogStore — getUnanalyzed / setAnalysisLabels', 
   it('getUnanalyzed excludes logs that already have labels', async () => {
     const store = createInMemoryRequestLogStore();
     await store.create(makeLog('log-1'));
-    await store.create({ ...makeLog('log-2'), analysisLabels: ['win'] });
+    await store.create({ ...makeLog('log-2'), analysisLabels: ['success'] });
     const unanalyzed = await store.getUnanalyzed(10);
     expect(unanalyzed).toHaveLength(1);
     expect(unanalyzed[0].id).toBe('log-1');

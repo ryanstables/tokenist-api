@@ -84,7 +84,7 @@ describe('POST /admin/sentiment/analyze-pending', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(
         new Response(
-          JSON.stringify({ choices: [{ message: { content: '["win"]' } }] }),
+          JSON.stringify({ choices: [{ message: { content: '["success"]' } }] }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )
       )
@@ -100,11 +100,11 @@ describe('POST /admin/sentiment/analyze-pending', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3);
 
     const log1 = await store.getById('log-1');
-    expect(log1?.analysisLabels).toEqual(['win']);
+    expect(log1?.analysisLabels).toEqual(['success']);
     const log2 = await store.getById('log-2');
-    expect(log2?.analysisLabels).toEqual(['win']);
+    expect(log2?.analysisLabels).toEqual(['success']);
     const log3 = await store.getById('log-3');
-    expect(log3?.analysisLabels).toEqual(['win']);
+    expect(log3?.analysisLabels).toEqual(['success']);
 
     fetchSpy.mockRestore();
   });

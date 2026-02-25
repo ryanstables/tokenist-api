@@ -7,7 +7,7 @@ const VALID_LABELS = [
   'nsfw',
   'jailbreaking',
   'laziness',
-  'win',
+  'success',
 ] as const;
 
 const BATCH_SIZE = 50;
@@ -55,7 +55,7 @@ export function parseLabels(rawJson: string): string[] {
 
 const SYSTEM_PROMPT = `You are a quality-analysis classifier for AI assistant conversations.
 Analyze the user message and assistant response and return a JSON array of labels that apply.
-Only use labels from this list: forgetting, task_failure, user_frustration, nsfw, jailbreaking, laziness, win.
+Only use labels from this list: forgetting, task_failure, user_frustration, nsfw, jailbreaking, laziness, success.
 Return an empty array [] if none apply. Respond with ONLY the JSON array — no explanation, no markdown.
 
 Label definitions:
@@ -65,7 +65,7 @@ Label definitions:
 - nsfw: explicit, harmful, or adult content was involved
 - jailbreaking: user tried to manipulate or bypass the assistant's guidelines
 - laziness: assistant gave a blank, minimal, or low-effort response
-- win: user praised, thanked, or expressed satisfaction`;
+- success: assistant gave a complete, accurate, and helpful response that clearly and fully addressed the user's request`;
 
 export async function classifyRequest(
   content: { userMessage: string; assistantResponse: string },

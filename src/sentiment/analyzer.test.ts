@@ -48,17 +48,17 @@ describe('parseLabels', () => {
   });
 
   it('returns matched labels', () => {
-    expect(parseLabels('["win","task_failure"]')).toEqual(['win', 'task_failure']);
+    expect(parseLabels('["success","task_failure"]')).toEqual(['success', 'task_failure']);
   });
 
   it('filters out unknown labels', () => {
-    const result = parseLabels('["win","invented_label"]');
-    expect(result).toContain('win');
+    const result = parseLabels('["success","invented_label"]');
+    expect(result).toContain('success');
     expect(result).not.toContain('invented_label');
   });
 
   it('strips markdown code fences', () => {
-    expect(parseLabels('```json\n["win"]\n```')).toContain('win');
+    expect(parseLabels('```json\n["success"]\n```')).toContain('success');
   });
 
   it('returns empty array for malformed JSON', () => {
@@ -102,10 +102,10 @@ describe('handleSentimentAnalysis', () => {
       createdAt: new Date(),
     });
 
-    // Mock the fetch to return ["win"]
+    // Mock the fetch to return ["success"]
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ choices: [{ message: { content: '["win"]' } }] }),
+        JSON.stringify({ choices: [{ message: { content: '["success"]' } }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       )
     );
@@ -114,7 +114,7 @@ describe('handleSentimentAnalysis', () => {
     expect(result).toBe(1);
 
     const log = await store.getById('log-1');
-    expect(log?.analysisLabels).toEqual(['win']);
+    expect(log?.analysisLabels).toEqual(['success']);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     fetchSpy.mockRestore();
   });
