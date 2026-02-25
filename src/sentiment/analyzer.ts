@@ -1,14 +1,4 @@
-import type { RequestLogStore } from '../storage/interfaces';
-
-const VALID_LABELS = [
-  'forgetting',
-  'task_failure',
-  'user_frustration',
-  'nsfw',
-  'jailbreaking',
-  'laziness',
-  'success',
-] as const;
+import type { RequestLogStore, SentimentLabelStore } from '../storage/interfaces';
 
 const BATCH_SIZE = 50;
 const TRUNCATE_CHARS = 500;
@@ -39,37 +29,42 @@ export function extractContent(
   return { userMessage, assistantResponse };
 }
 
-export function parseLabels(rawJson: string): string[] {
+export function parseLabels(rawJson: string, validLabels: string[]): string[] {
   if (!rawJson) return [];
   const stripped = rawJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   try {
     const parsed = JSON.parse(stripped);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (l): l is string => typeof l === 'string' && (VALID_LABELS as readonly string[]).includes(l)
+      (l): l is string => typeof l === 'string' && validLabels.includes(l)
     );
   } catch {
     return [];
   }
 }
 
-const SYSTEM_PROMPT = `You are a quality-analysis classifier for AI assistant conversations.
+export interface LabelDef {
+  name: string;
+  description: string;
+}
+
+export function buildSystemPrompt(labels: LabelDef[]): string {
+  const labelList = labels.map((l) => l.name).join(', ');
+  const definitions = labels.map((l) => `- ${l.name}: ${l.description}`).join('\n');
+  return `You are a quality-analysis classifier for AI assistant conversations.
 Analyze the user message and assistant response and return a JSON array of labels that apply.
-Only use labels from this list: forgetting, task_failure, user_frustration, nsfw, jailbreaking, laziness, success.
+Only use labels from this list: ${labelList}.
 Return an empty array [] if none apply. Respond with ONLY the JSON array — no explanation, no markdown.
 
 Label definitions:
-- forgetting: assistant forgot important context the user previously provided
-- task_failure: assistant failed, refused, or could not complete the requested task
-- user_frustration: user expressed frustration, anger, or disappointment
-- nsfw: explicit, harmful, or adult content was involved
-- jailbreaking: user tried to manipulate or bypass the assistant's guidelines
-- laziness: assistant gave a blank, minimal, or low-effort response
-- success: assistant gave a complete, accurate, and helpful response that clearly and fully addressed the user's request`;
+${definitions}`;
+}
 
 export async function classifyRequest(
   content: { userMessage: string; assistantResponse: string },
-  apiKey: string
+  apiKey: string,
+  systemPrompt: string,
+  validLabels: string[]
 ): Promise<string[]> {
   const userContent = `User message:\n${content.userMessage || '(empty)'}\n\nAssistant response:\n${content.assistantResponse || '(empty)'}`;
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -81,7 +76,7 @@ export async function classifyRequest(
     body: JSON.stringify({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ],
       temperature: 0,
@@ -92,30 +87,52 @@ export async function classifyRequest(
     throw new Error(`[sentiment] OpenAI API error ${response.status}`);
   }
   const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
-  return parseLabels(data.choices?.[0]?.message?.content ?? '');
+  return parseLabels(data.choices?.[0]?.message?.content ?? '', validLabels);
 }
 
 export async function handleSentimentAnalysis(
   store: RequestLogStore,
+  labelStore: SentimentLabelStore,
   apiKey: string
 ): Promise<number> {
   if (!apiKey) return 0;
   const logs = await store.getUnanalyzed(BATCH_SIZE);
   if (logs.length === 0) return 0;
-  const settled = await Promise.allSettled(
-    logs.map(async (log) => {
-      try {
-        const content = extractContent(log.requestBody, log.responseBody ?? null);
-        const labels = await classifyRequest(content, apiKey);
-        await store.setAnalysisLabels(log.id, labels);
-      } catch (err) {
-        console.error(`[sentiment] Failed to classify log ${log.id}:`, err);
-        // Write empty array to prevent infinite retry of permanently failing logs.
-        // Transient failures will be retried on next cron run if not yet set.
-        await store.setAnalysisLabels(log.id, []);
-      }
-    })
-  );
+
+  // Group logs by orgId so we fetch labels once per org
+  const byOrg = new Map<string, typeof logs>();
+  for (const log of logs) {
+    const key = log.orgId ?? '';
+    const bucket = byOrg.get(key) ?? [];
+    bucket.push(log);
+    byOrg.set(key, bucket);
+  }
+
+  const allPromises: Promise<void>[] = [];
+
+  for (const [orgId, orgLogs] of byOrg) {
+    const labels = await labelStore.getForOrg(orgId || 'default');
+    const validNames = labels.map((l) => l.name);
+    const systemPrompt = buildSystemPrompt(labels);
+
+    for (const log of orgLogs) {
+      allPromises.push(
+        (async () => {
+          try {
+            const content = extractContent(log.requestBody, log.responseBody ?? null);
+            const classified = await classifyRequest(content, apiKey, systemPrompt, validNames);
+            await store.setAnalysisLabels(log.id, classified);
+          } catch (err) {
+            console.error(`[sentiment] Failed to classify log ${log.id}:`, err);
+            // Write empty array to prevent infinite retry of permanently failing logs.
+            await store.setAnalysisLabels(log.id, []);
+          }
+        })()
+      );
+    }
+  }
+
+  const settled = await Promise.allSettled(allPromises);
   const failures = settled.filter((r) => r.status === 'rejected');
   if (failures.length > 0) {
     console.error(`[sentiment] ${failures.length}/${logs.length} classifications failed`);
