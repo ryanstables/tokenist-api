@@ -9,6 +9,7 @@ export interface TokenistConfig {
   jwtSecret: string;
   jwtExpiresIn?: string;
   openaiApiKey?: string;
+  devMode?: boolean;
   logLevel?: LogLevel;
 
   usageStore: UsageStore;

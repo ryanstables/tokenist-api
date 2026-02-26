@@ -31,6 +31,7 @@ export interface AdminRouteDeps {
   jwtSecret: string;
   jwtExpiresIn?: string;
   openaiApiKey?: string;
+  devMode?: boolean;
 }
 
 const blockRequestSchema = z.object({
@@ -137,7 +138,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -1373,6 +1374,102 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         return c.json({ id: log.id, conversationId, recorded: true }, 201);
       });
     }
+  }
+
+  // ============================================================
+  // Dev seed endpoint (only available when devMode is enabled)
+  // ============================================================
+
+  if (devMode && requestLogStore && userStore) {
+    const seedAuthMw = createAuthMiddleware(jwtSecret);
+
+    app.post('/dev/seed', seedAuthMw, async (c) => {
+      const payload = c.get('user');
+      const orgId = payload.orgId;
+      if (!orgId) {
+        return c.json({ error: 'Organization required' }, 403);
+      }
+
+      const now = new Date();
+
+      const demoUsers = [
+        { endUserId: 'demo_alice', endUserEmail: 'alice@acme.com', endUserName: 'Alice Chen' },
+        { endUserId: 'demo_bob', endUserEmail: 'bob@acme.com', endUserName: 'Bob Martinez' },
+        { endUserId: 'demo_carol', endUserEmail: 'carol@acme.com', endUserName: 'Carol Williams' },
+        { endUserId: 'demo_dave', endUserEmail: 'dave@acme.com', endUserName: 'Dave Patel' },
+        { endUserId: 'demo_eve', endUserEmail: 'eve@acme.com', endUserName: 'Eve Johnson' },
+      ];
+
+      const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4o-realtime-preview'];
+      const features = ['chat', 'assistant', 'search', 'summarize', 'analyze'];
+
+      let totalLogs = 0;
+
+      for (const demoUser of demoUsers) {
+        const numRequests = 20 + Math.floor(Math.random() * 21); // 20–40 per user
+
+        for (let i = 0; i < numRequests; i++) {
+          // Random timestamp within the last 30 days
+          const daysAgo = Math.floor(Math.random() * 30);
+          const ts = new Date(now);
+          ts.setUTCDate(ts.getUTCDate() - daysAgo);
+          ts.setUTCHours(
+            8 + Math.floor(Math.random() * 14), // 08:00–21:59 UTC
+            Math.floor(Math.random() * 60),
+            Math.floor(Math.random() * 60),
+            0
+          );
+
+          const model = models[Math.floor(Math.random() * models.length)];
+          const feature = features[Math.floor(Math.random() * features.length)];
+          const promptTokens = 200 + Math.floor(Math.random() * 2000);
+          const completionTokens = 50 + Math.floor(Math.random() * 500);
+          const latencyMs = 200 + Math.floor(Math.random() * 2800);
+          const success = Math.random() > 0.05; // 95% success rate
+
+          let costUsd = 0;
+          if (pricingStore) {
+            try {
+              costUsd = await pricingStore.calculateCost(model, promptTokens, completionTokens);
+            } catch {
+              costUsd = (promptTokens * 0.0025 + completionTokens * 0.01) / 1000;
+            }
+          } else {
+            costUsd = (promptTokens * 0.0025 + completionTokens * 0.01) / 1000;
+          }
+
+          await requestLogStore.create({
+            id: crypto.randomUUID(),
+            endUserId: demoUser.endUserId,
+            orgId,
+            endUserEmail: demoUser.endUserEmail,
+            endUserName: demoUser.endUserName,
+            conversationId: crypto.randomUUID(),
+            model,
+            feature,
+            requestBody: JSON.stringify({ messages: [{ role: 'user', content: 'Demo request' }] }),
+            responseBody: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'Demo response' } }] }),
+            status: success ? 'success' : 'error',
+            promptTokens,
+            completionTokens,
+            totalTokens: promptTokens + completionTokens,
+            costUsd,
+            latencyMs,
+            createdAt: ts,
+          });
+
+          // Update usage for the correct daily period key so date-range queries work
+          const periodKey = getPeriodKey('daily', ts);
+          await usageStore.updateUsage(demoUser.endUserId, model, promptTokens, completionTokens, periodKey, costUsd);
+
+          totalLogs++;
+        }
+      }
+
+      logger.info({ orgId, users: demoUsers.length, logs: totalLogs }, 'Demo data seeded');
+
+      return c.json({ seeded: true, orgId, users: demoUsers.length, logs: totalLogs });
+    });
   }
 
   return app;

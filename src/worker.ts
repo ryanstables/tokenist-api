@@ -18,6 +18,7 @@ interface Env {
   DEFAULT_MAX_TOTAL_TOKENS?: string;
   DB: D1Database;
   OPENAI_API_KEY?: string;
+  DEV_MODE?: string;
 }
 
 export default {
@@ -36,6 +37,7 @@ export default {
     const tokenist = createTokenist({
       jwtSecret: env.JWT_SECRET,
       openaiApiKey: env.OPENAI_API_KEY,
+      devMode: env.DEV_MODE === 'true',
       defaultMaxCostUsd,
       defaultMaxTotalTokens,
       usageStore: createD1UsageStore(env.DB, {
