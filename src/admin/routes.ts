@@ -1403,6 +1403,90 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4o-realtime-preview'];
       const features = ['chat', 'assistant', 'search', 'summarize', 'analyze'];
 
+      type ConvPair = { user: string; assistant: string };
+      const conversations: ConvPair[] = [
+        {
+          user: 'How do I implement rate limiting in a Node.js API?',
+          assistant: 'There are several approaches for rate limiting in Node.js. The most common is the token bucket algorithm, which you can implement with the `express-rate-limit` package:\n\n```js\nimport rateLimit from \'express-rate-limit\';\n\nconst limiter = rateLimit({\n  windowMs: 15 * 60 * 1000, // 15 minutes\n  max: 100, // limit each IP to 100 requests per window\n  standardHeaders: true,\n  legacyHeaders: false,\n});\n\napp.use(\'/api/\', limiter);\n```\n\nFor more granular per-user limiting, store counters in Redis with a TTL equal to your window.',
+        },
+        {
+          user: 'Write a SQL query to find the top 5 customers by total revenue this month.',
+          assistant: 'Here\'s a query that aggregates order totals and ranks by revenue:\n\n```sql\nSELECT\n  c.id,\n  c.name,\n  c.email,\n  SUM(o.total_amount) AS revenue\nFROM customers c\nJOIN orders o ON o.customer_id = c.id\nWHERE o.created_at >= DATE_TRUNC(\'month\', NOW())\n  AND o.status = \'completed\'\nGROUP BY c.id, c.name, c.email\nORDER BY revenue DESC\nLIMIT 5;\n```\n\nIf you need the previous month for comparison, replace `NOW()` with `NOW() - INTERVAL \'1 month\'`.',
+        },
+        {
+          user: 'What are the key differences between React and Vue for a mid-sized team?',
+          assistant: 'The main practical differences come down to opinion vs. convention:\n\n**React** gives you maximum flexibility—you pick your router, state manager, and form library. This is powerful but adds decision fatigue and inconsistency across teams.\n\n**Vue** ships with an official router and Pinia for state, so architectural decisions are already made. Templates are HTML-like and easier for developers coming from a backend or design background.\n\nFor a mid-sized team, Vue often wins on onboarding speed and code consistency. React wins if you need a larger hiring pool or are building something that pushes the framework to its limits.',
+        },
+        {
+          user: 'Help me write a polite email declining a vendor meeting request.',
+          assistant: 'Subject: Re: Meeting Request\n\nHi [Name],\n\nThank you for reaching out — I appreciate you thinking of us.\n\nUnfortunately, we\'re not in a position to evaluate new vendors in this area right now, so I\'ll have to decline the meeting. I wouldn\'t want to take up your time when we can\'t give your solution the attention it deserves.\n\nI\'ll keep your details on file in case our needs change down the line.\n\nBest,\n[Your name]',
+        },
+        {
+          user: 'Explain async/await in JavaScript in plain English.',
+          assistant: 'Async/await is syntax sugar over Promises that makes asynchronous code read like synchronous code.\n\nWhen you mark a function `async`, it always returns a Promise. Inside it, you can `await` any Promise — execution pauses at that line until the Promise resolves, then continues with the result.\n\n```js\nasync function getUser(id) {\n  const res = await fetch(`/api/users/${id}`);\n  const user = await res.json();\n  return user; // wrapped in a Promise automatically\n}\n```\n\nThe key mental model: `await` just means "wait for this before continuing, but don\'t block the whole thread."',
+        },
+        {
+          user: 'How do I implement JWT authentication in an Express app?',
+          assistant: 'Here\'s a minimal JWT auth setup:\n\n**1. Issue a token on login:**\n```js\nimport jwt from \'jsonwebtoken\';\n\napp.post(\'/login\', async (req, res) => {\n  const user = await verifyCredentials(req.body);\n  if (!user) return res.status(401).json({ error: \'Invalid credentials\' });\n  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: \'7d\' });\n  res.json({ token });\n});\n```\n\n**2. Protect routes with middleware:**\n```js\nfunction authMiddleware(req, res, next) {\n  const token = req.headers.authorization?.split(\' \')[1];\n  if (!token) return res.status(401).json({ error: \'No token\' });\n  try {\n    req.user = jwt.verify(token, process.env.JWT_SECRET);\n    next();\n  } catch {\n    res.status(401).json({ error: \'Invalid token\' });\n  }\n}\n```',
+        },
+        {
+          user: 'What regex pattern validates a standard email address?',
+          assistant: 'For most practical purposes, this pattern covers valid email addresses:\n\n```\n/^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$/\n```\n\nIn JavaScript:\n```js\nfunction isValidEmail(email) {\n  return /^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}$/.test(email);\n}\n```\n\nNote: The RFC 5322 spec is much more permissive than this. For production, a simple syntax check like this plus a verification email is more reliable than a perfect regex.',
+        },
+        {
+          user: 'How should I structure a microservices architecture for a growing SaaS product?',
+          assistant: 'Start with the "strangler fig" pattern — don\'t decompose from day one. A well-structured monolith is easier to reason about and deploy.\n\nWhen you do split services, organise around business domains, not technical layers. Good boundaries tend to be: auth/users, billing, notifications, core product logic.\n\n**Practical rules:**\n- Each service owns its database. No sharing tables.\n- Communicate via events for async work, REST/gRPC for synchronous calls.\n- Deploy each service independently with its own CI pipeline.\n- Use a service mesh (Istio, Linkerd) once you have 5+ services to handle observability and retries.\n\nThe most common mistake is splitting too early. If two services always deploy together, they should be one service.',
+        },
+        {
+          user: 'I\'m getting "TypeError: Cannot read properties of undefined (reading \'map\')" in React. How do I fix it?',
+          assistant: 'This error means you\'re calling `.map()` on a value that\'s `undefined` — usually because data hasn\'t loaded yet.\n\nThe fix: provide a default empty array:\n```jsx\n// Before\n{data.items.map(item => <Item key={item.id} {...item} />)}\n\n// After\n{(data?.items ?? []).map(item => <Item key={item.id} {...item} />)}\n```\n\nOr guard the render:\n```jsx\nif (!data) return <Spinner />;\n```\n\nFor async data fetching, always initialise state as `null` or `[]` and render a loading state until it resolves.',
+        },
+        {
+          user: 'Write a Python function to read a CSV and return a list of dicts.',
+          assistant: '```python\nimport csv\nfrom pathlib import Path\n\ndef read_csv(path: str | Path) -> list[dict]:\n    """Read a CSV file and return each row as a dict keyed by header."""\n    with open(path, newline="", encoding="utf-8") as f:\n        reader = csv.DictReader(f)\n        return list(reader)\n\n# Usage\nrows = read_csv("data.csv")\nprint(rows[0])  # {\'name\': \'Alice\', \'age\': \'32\', ...}\n```\n\nNote that all values come back as strings. If you need typed data, use `pandas.read_csv()` instead — it infers types automatically.',
+        },
+        {
+          user: 'Explain the CAP theorem in simple terms.',
+          assistant: 'CAP theorem says a distributed system can only guarantee two of these three properties at the same time:\n\n- **Consistency** — every read returns the most recent write\n- **Availability** — every request gets a response (even if stale)\n- **Partition tolerance** — the system keeps working if nodes can\'t talk to each other\n\nIn practice, network partitions happen, so you always need partition tolerance. That means the real trade-off is **consistency vs. availability**.\n\n- PostgreSQL, MySQL → prioritise consistency (CP)\n- Cassandra, DynamoDB → prioritise availability (AP)\n\nFor most web apps, eventual consistency (AP) is fine. You\'d only need CP for things like bank balances or inventory management.',
+        },
+        {
+          user: 'My PostgreSQL query is slow. How do I start debugging it?',
+          assistant: 'Start with `EXPLAIN ANALYZE`:\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)\nSELECT * FROM orders WHERE customer_id = 123 AND status = \'pending\';\n```\n\nLook for:\n- **Seq Scan** on a large table → you need an index\n- **high actual vs estimated rows** → stale statistics, run `ANALYZE orders`\n- **Nested Loop with many iterations** → may need a hash join or better index\n\nQuick wins:\n```sql\n-- Add a composite index for your most common filter combination\nCREATE INDEX CONCURRENTLY idx_orders_customer_status\n  ON orders (customer_id, status);\n```\n\nAlso check `pg_stat_statements` for your slowest queries across the whole database.',
+        },
+        {
+          user: 'What are REST API best practices I should follow?',
+          assistant: 'The ones that matter most in practice:\n\n**URLs represent resources, not actions**\n- ✅ `DELETE /users/42`\n- ❌ `POST /deleteUser?id=42`\n\n**Use standard HTTP status codes correctly**\n- 200 OK, 201 Created, 204 No Content, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 422 Unprocessable Entity, 429 Too Many Requests\n\n**Version your API from day one** — `/v1/users` is much easier than retrofitting it later\n\n**Consistent error shape** — always return `{ error: string, code?: string }` so clients can parse errors reliably\n\n**Pagination** — use cursor-based pagination for large collections; avoid `OFFSET` at scale\n\n**Never expose internal IDs** — use UUIDs or opaque tokens instead of auto-increment integers',
+        },
+        {
+          user: 'Can you summarise the main points of our Q3 product roadmap document?',
+          assistant: 'Based on the document, the Q3 priorities are:\n\n1. **Performance** — reduce p95 API latency from 340ms to under 150ms by migrating hot paths to edge workers\n2. **Billing overhaul** — replace the current flat-rate plan with usage-based pricing; launch in mid-August\n3. **Team accounts** — add multi-seat organisations with role-based access (admin, member, viewer)\n4. **Mobile SDK** — ship iOS and Android SDKs to unlock the enterprise segment that blocked on mobile support\n5. **Observability** — instrument all services with OpenTelemetry and set up error budgets per SLO\n\nThe theme is scaling the platform to handle 10× current traffic while unlocking enterprise deals blocked on compliance and team features.',
+        },
+        {
+          user: 'How do I debounce a search input in React?',
+          assistant: 'The cleanest approach is a custom hook:\n\n```ts\nimport { useState, useEffect } from \'react\';\n\nfunction useDebounce<T>(value: T, delayMs: number): T {\n  const [debounced, setDebounced] = useState(value);\n\n  useEffect(() => {\n    const timer = setTimeout(() => setDebounced(value), delayMs);\n    return () => clearTimeout(timer);\n  }, [value, delayMs]);\n\n  return debounced;\n}\n\n// Usage\nfunction SearchBox() {\n  const [query, setQuery] = useState(\'\');\n  const debouncedQuery = useDebounce(query, 300);\n\n  useEffect(() => {\n    if (debouncedQuery) fetchResults(debouncedQuery);\n  }, [debouncedQuery]);\n\n  return <input value={query} onChange={e => setQuery(e.target.value)} />;\n}\n```\n\nThe `delayMs` of 300ms is a good default — noticeable but not sluggish.',
+        },
+        {
+          user: 'What\'s the difference between authentication and authorisation?',
+          assistant: '**Authentication** answers "who are you?" — it verifies identity. Examples: logging in with a password, verifying a JWT, OAuth.\n\n**Authorisation** answers "what are you allowed to do?" — it checks permissions. Examples: "can this user edit this post?", role-based access control (RBAC), resource ownership checks.\n\nAuthentication always comes first. You can\'t authorise someone you haven\'t identified.\n\nIn code, the pattern looks like:\n```js\n// Authentication middleware — runs first\nconst user = verifyToken(req.headers.authorization);\nif (!user) return res.status(401).json({ error: \'Unauthenticated\' });\n\n// Authorisation check — runs after\nif (post.authorId !== user.id && user.role !== \'admin\') {\n  return res.status(403).json({ error: \'Forbidden\' });\n}\n```',
+        },
+        {
+          user: 'Generate a TypeScript type for a paginated API response.',
+          assistant: '```typescript\ninterface PaginatedResponse<T> {\n  data: T[];\n  pagination: {\n    total: number;\n    page: number;\n    perPage: number;\n    hasNextPage: boolean;\n    hasPrevPage: boolean;\n  };\n}\n\n// Cursor-based variant (better for large datasets)\ninterface CursorPaginatedResponse<T> {\n  data: T[];\n  nextCursor: string | null;\n  prevCursor: string | null;\n  total?: number; // optional — expensive to compute\n}\n\n// Usage\ntype UserListResponse = PaginatedResponse<User>;\nasync function getUsers(page: number): Promise<UserListResponse> { ... }\n```\n\nPrefer cursor-based pagination if your data can be inserted or deleted between pages — offset pagination skips or duplicates items when the underlying data changes.',
+        },
+        {
+          user: 'How do I handle environment variables safely in a Next.js app?',
+          assistant: 'Next.js splits env vars into two categories:\n\n**Server-only** — any variable in `.env.local` without the `NEXT_PUBLIC_` prefix. Only accessible in Server Components, API routes, and `getServerSideProps`. Never sent to the browser.\n\n**Public (client-accessible)** — prefixed with `NEXT_PUBLIC_`. Gets inlined at build time into the client bundle. Treat these as public — never put secrets here.\n\nBest practices:\n- `.env.local` for local development (git-ignored)\n- `.env.example` committed to the repo as a template\n- Secrets (API keys, DB passwords) always server-only\n- Use a secrets manager (Doppler, Infisical, AWS Secrets Manager) for production rather than env files\n\n```ts\n// ✅ Safe — server only\nconst dbUrl = process.env.DATABASE_URL;\n\n// ⚠️ Public — visible in browser bundle\nconst apiBase = process.env.NEXT_PUBLIC_API_URL;\n```',
+        },
+        {
+          user: 'I need to merge two arrays of objects by a shared key in JavaScript.',
+          assistant: '```js\n// Merge two arrays of objects by a shared key (e.g. "id")\nfunction mergeById(a, b, key = \'id\') {\n  const map = new Map(a.map(item => [item[key], item]));\n  for (const item of b) {\n    map.set(item[key], { ...map.get(item[key]), ...item });\n  }\n  return Array.from(map.values());\n}\n\n// Example\nconst users = [{ id: 1, name: \'Alice\' }, { id: 2, name: \'Bob\' }];\nconst scores = [{ id: 1, score: 95 }, { id: 3, score: 72 }];\n\nconsole.log(mergeById(users, scores));\n// [\n//   { id: 1, name: \'Alice\', score: 95 },\n//   { id: 2, name: \'Bob\' },\n//   { id: 3, score: 72 }\n// ]\n```\n\nItems in `b` that aren\'t in `a` are added. If both arrays have the same key, `b`\'s values win (spread order).',
+        },
+        {
+          user: 'What\'s the best way to handle errors in an async Express route?',
+          assistant: 'Wrap your async handlers to forward errors to Express\'s error middleware:\n\n```js\n// Utility wrapper\nconst asyncHandler = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);\n\n// Route using the wrapper\napp.get(\'/users/:id\', asyncHandler(async (req, res) => {\n  const user = await db.findUser(req.params.id);\n  if (!user) throw Object.assign(new Error(\'Not found\'), { status: 404 });\n  res.json(user);\n}));\n\n// Central error handler (must have 4 params)\napp.use((err, req, res, next) => {\n  const status = err.status ?? 500;\n  res.status(status).json({\n    error: status < 500 ? err.message : \'Internal server error\',\n  });\n});\n```\n\nIn Express 5 (now stable), async errors propagate automatically without the wrapper.',
+        },
+      ];
+
       let totalLogs = 0;
 
       for (const demoUser of demoUsers) {
@@ -1422,6 +1506,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
 
           const model = models[Math.floor(Math.random() * models.length)];
           const feature = features[Math.floor(Math.random() * features.length)];
+          const conv = conversations[Math.floor(Math.random() * conversations.length)];
           const promptTokens = 200 + Math.floor(Math.random() * 2000);
           const completionTokens = 50 + Math.floor(Math.random() * 500);
           const latencyMs = 200 + Math.floor(Math.random() * 2800);
@@ -1447,8 +1532,8 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
             conversationId: crypto.randomUUID(),
             model,
             feature,
-            requestBody: JSON.stringify({ messages: [{ role: 'user', content: 'Demo request' }] }),
-            responseBody: JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'Demo response' } }] }),
+            requestBody: JSON.stringify({ messages: [{ role: 'user', content: conv.user }] }),
+            responseBody: JSON.stringify({ choices: [{ message: { role: 'assistant', content: conv.assistant } }], usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens } }),
             status: success ? 'success' : 'error',
             promptTokens,
             completionTokens,
