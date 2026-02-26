@@ -10,6 +10,7 @@ export interface TokenistConfig {
   jwtExpiresIn?: string;
   openaiApiKey?: string;
   devMode?: boolean;
+  db?: D1Database;
   logLevel?: LogLevel;
 
   usageStore: UsageStore;

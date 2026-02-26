@@ -38,6 +38,7 @@ export default {
       jwtSecret: env.JWT_SECRET,
       openaiApiKey: env.OPENAI_API_KEY,
       devMode: env.DEV_MODE === 'true',
+      db: env.DEV_MODE === 'true' ? env.DB : undefined,
       defaultMaxCostUsd,
       defaultMaxTotalTokens,
       usageStore: createD1UsageStore(env.DB, {

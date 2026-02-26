@@ -32,6 +32,7 @@ export interface AdminRouteDeps {
   jwtExpiresIn?: string;
   openaiApiKey?: string;
   devMode?: boolean;
+  db?: D1Database;
 }
 
 const blockRequestSchema = z.object({
@@ -138,7 +139,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode, db } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -1391,6 +1392,12 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       }
 
       const now = new Date();
+
+      // Wipe any existing demo data for this org before reseeding
+      if (db) {
+        await db.prepare("DELETE FROM request_logs WHERE end_user_id LIKE 'demo_%'").run();
+        await db.prepare("DELETE FROM usage WHERE end_user_id LIKE 'demo_%'").run();
+      }
 
       const demoUsers = [
         { endUserId: 'demo_alice', endUserEmail: 'alice@acme.com', endUserName: 'Alice Chen' },

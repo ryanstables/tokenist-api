@@ -109,6 +109,7 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
     jwtExpiresIn: config.jwtExpiresIn,
     openaiApiKey: config.openaiApiKey,
     devMode: config.devMode,
+    db: config.db,
   });
 
   // Main app with CORS
