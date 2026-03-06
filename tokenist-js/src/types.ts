@@ -3,8 +3,8 @@
 export interface TokenistClientOptions {
   /** API key used to authenticate requests (passed as Bearer token). */
   apiKey: string;
-  /** Base URL of your Tokenist deployment, e.g. "https://tokenist.example.com". */
-  baseUrl: string;
+  /** Base URL of your Tokenist deployment. Defaults to https://api.tokenist.dev */
+  baseUrl?: string;
 }
 
 // ─── Common ──────────────────────────────────────────────────────────────────

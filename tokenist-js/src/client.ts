@@ -39,11 +39,9 @@ export class TokenistClient {
     if (!options.apiKey) {
       throw new Error("TokenistClient: apiKey is required");
     }
-    if (!options.baseUrl) {
-      throw new Error("TokenistClient: baseUrl is required");
-    }
 
-    const http = new HttpClient(options.baseUrl, options.apiKey);
+    const baseUrl = options.baseUrl ?? "https://api.tokenist.dev";
+    const http = new HttpClient(baseUrl, options.apiKey);
 
     this.admin = new AdminResource(http);
     this.sdk = new SdkResource(http);
