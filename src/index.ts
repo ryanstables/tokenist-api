@@ -3,6 +3,8 @@ import { cors } from 'hono/cors';
 import type { TokenistConfig } from './config';
 import { createLogger } from './logger';
 import { createAdminRoutes } from './admin/routes';
+import { createPaymentRoutes } from './payment/routes';
+import { createAuthMiddleware } from './admin/middleware';
 
 // Re-export types
 export type { TokenistConfig } from './config';
@@ -23,7 +25,11 @@ export type {
   DetailedTokenUsage,
   SentimentLabel,
   SentimentLabelStore,
+  TierUsageStore,
+  Tier,
+  TierConfig,
 } from './storage/interfaces';
+export { TIERS } from './storage/interfaces';
 export type {
   UsageWindow,
   EndUserIdentity,
@@ -63,6 +69,7 @@ export {
   createInMemoryRequestLogStore,
   createInMemoryPricingStore,
   createInMemoryLabelStore,
+  createInMemoryTierUsageStore,
 } from './storage/memory';
 export {
   createD1UsageStore,
@@ -72,6 +79,7 @@ export {
   createD1RequestLogStore,
   createD1PricingStore,
   createD1SentimentLabelStore,
+  createD1TierUsageStore,
 } from './storage/d1';
 export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
@@ -92,7 +100,7 @@ export interface TokenistInstance {
 
 export function createTokenist(config: TokenistConfig): TokenistInstance {
   const logger = config.logger ?? createLogger(config.logLevel ?? 'info');
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore } = config;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, tierUsageStore } = config;
 
   // Build admin/API routes
   const adminApp = createAdminRoutes({
@@ -104,6 +112,7 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
     pricingStore,
     slackSettingsStore,
     sentimentLabelStore,
+    tierUsageStore,
     logger,
     jwtSecret: config.jwtSecret,
     jwtExpiresIn: config.jwtExpiresIn,
@@ -118,6 +127,33 @@ export function createTokenist(config: TokenistConfig): TokenistInstance {
 
   // Mount admin routes
   app.route('/', adminApp);
+
+  // Mount payment routes when Stripe is configured and userStore + tierUsageStore are available
+  if (
+    config.stripeSecretKey &&
+    config.stripeWebhookSecret &&
+    userStore &&
+    tierUsageStore
+  ) {
+    const authMw = createAuthMiddleware(config.jwtSecret);
+    const paymentApp = createPaymentRoutes(
+      {
+        userStore,
+        tierUsageStore,
+        jwtSecret: config.jwtSecret,
+        stripeSecretKey: config.stripeSecretKey,
+        stripeWebhookSecret: config.stripeWebhookSecret,
+        stripePriceStarterMonthly: config.stripePriceStarterMonthly ?? '',
+        stripePriceStarterAnnual: config.stripePriceStarterAnnual ?? '',
+        stripePriceGrowthMonthly: config.stripePriceGrowthMonthly ?? '',
+        stripePriceGrowthAnnual: config.stripePriceGrowthAnnual ?? '',
+        dashboardUrl: config.dashboardUrl ?? 'https://dashboard.tokenist.dev',
+        marketingUrl: config.marketingUrl ?? 'https://tokenist.dev',
+      },
+      authMw
+    );
+    app.route('/', paymentApp);
+  }
 
   return {
     fetch: (request: Request) => app.fetch(request),

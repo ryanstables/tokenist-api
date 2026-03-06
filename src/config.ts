@@ -1,6 +1,6 @@
 import type { UsageWindow } from './types/user';
 import type { LogLevel, Logger } from './logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore, SlackSettingsStore, SentimentLabelStore } from './storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, PricingStore, SlackSettingsStore, SentimentLabelStore, TierUsageStore } from './storage/interfaces';
 
 export interface TokenistConfig {
   defaultMaxCostUsd?: number;
@@ -13,6 +13,16 @@ export interface TokenistConfig {
   db?: D1Database;
   logLevel?: LogLevel;
 
+  // Stripe payment integration (optional)
+  stripeSecretKey?: string;
+  stripeWebhookSecret?: string;
+  stripePriceStarterMonthly?: string;
+  stripePriceStarterAnnual?: string;
+  stripePriceGrowthMonthly?: string;
+  stripePriceGrowthAnnual?: string;
+  dashboardUrl?: string;
+  marketingUrl?: string;
+
   usageStore: UsageStore;
   blocklist: Blocklist;
   userStore?: UserStore;
@@ -21,5 +31,6 @@ export interface TokenistConfig {
   pricingStore?: PricingStore;
   slackSettingsStore?: SlackSettingsStore;
   sentimentLabelStore?: SentimentLabelStore;
+  tierUsageStore?: TierUsageStore;
   logger?: Logger;
 }

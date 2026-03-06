@@ -1,5 +1,20 @@
 import type { EndUserUsage, EndUserThreshold } from '../types/user';
 
+export type Tier = 'free' | 'starter' | 'growth' | 'enterprise';
+
+export interface TierConfig {
+  requestsPerMonth: number | null;  // null = unlimited
+  overagePer1k: number | null;      // null = no overage (blocked when limit hit)
+  monthlyPrice: number | null;      // null = custom pricing
+}
+
+export const TIERS: Record<Tier, TierConfig> = {
+  free:       { requestsPerMonth: 25000,  overagePer1k: null,  monthlyPrice: 0 },
+  starter:    { requestsPerMonth: 150000, overagePer1k: 0.50,  monthlyPrice: 49 },
+  growth:     { requestsPerMonth: 750000, overagePer1k: 0.30,  monthlyPrice: 199 },
+  enterprise: { requestsPerMonth: null,   overagePer1k: null,  monthlyPrice: null },
+};
+
 export interface BlockEntry {
   endUserId: string;
   reason?: string;
@@ -38,6 +53,7 @@ export interface StoredUserRecord {
   displayName?: string;
   threshold?: EndUserThreshold;
   usageWindow?: string;
+  tier?: Tier;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -203,4 +219,11 @@ export interface SentimentLabelStore {
   create(orgId: string, fields: Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>): Promise<SentimentLabel>;
   update(id: string, orgId: string, fields: Partial<Pick<SentimentLabel, 'name' | 'displayName' | 'description' | 'color' | 'sortOrder'>>): Promise<SentimentLabel | undefined>;
   delete(id: string, orgId: string): Promise<boolean>;
+}
+
+export interface TierUsageStore {
+  /** Increment the request count for an org in the given period (YYYY-MM). Returns the new count. */
+  incrementRequestCount(orgId: string, periodKey: string): Promise<number>;
+  /** Get the current request count for an org in the given period (YYYY-MM). */
+  getRequestCount(orgId: string, periodKey: string): Promise<number>;
 }

@@ -23,10 +23,12 @@ describe("TokenistClient", () => {
       ).toThrow("baseUrl is required");
     });
 
-    it("exposes admin and sdk sub-resources", () => {
+    it("exposes admin and sdk methods (check, record, log)", () => {
       const client = new TokenistClient({ apiKey: API_KEY, baseUrl: BASE_URL });
       expect(client.admin).toBeDefined();
-      expect(client.sdk).toBeDefined();
+      expect(typeof client.check).toBe("function");
+      expect(typeof client.record).toBe("function");
+      expect(typeof client.log).toBe("function");
     });
   });
 

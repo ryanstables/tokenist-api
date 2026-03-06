@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore, SentimentLabelStore } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore, SentimentLabelStore, TierUsageStore, Tier } from '../storage/interfaces';
+import { TIERS } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
 import { generateToken } from '../auth/jwt';
@@ -27,6 +28,7 @@ export interface AdminRouteDeps {
   pricingStore?: PricingStore;
   slackSettingsStore?: SlackSettingsStore;
   sentimentLabelStore?: SentimentLabelStore;
+  tierUsageStore?: TierUsageStore;
   logger: Logger;
   jwtSecret: string;
   jwtExpiresIn?: string;
@@ -139,7 +141,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode, db } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, tierUsageStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode, db } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -154,6 +156,14 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       return 'Last 24 hours';
     }
     return period;
+  };
+
+  /** Returns the current month period key in YYYY-MM format for tier quota tracking. */
+  const getCurrentTierPeriodKey = (): string => {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
   };
 
   const getRulesForOrg = (orgId: string): Map<string, RuleRecord> => {
@@ -401,6 +411,19 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
 
       const totalCost = users.reduce((sum, user) => sum + user.usage.costUsd, 0);
 
+      // Fetch tier info for this org
+      let orgTier: Tier = 'free';
+      const orgUsers = userStore ? await userStore.listByOrg(orgId) : [];
+      if (orgUsers.length > 0) {
+        orgTier = (orgUsers[0].tier ?? 'free') as Tier;
+      }
+      const orgTierConfig = TIERS[orgTier];
+      let requestsThisMonth = 0;
+      if (tierUsageStore) {
+        const periodKey = getCurrentTierPeriodKey();
+        requestsThisMonth = await tierUsageStore.getRequestCount(orgId, periodKey);
+      }
+
       return c.json({
         orgId,
         period,
@@ -409,6 +432,12 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         userCount: users.length,
         users,
         featureFilter: feature,
+        tier: orgTier,
+        tierLimits: {
+          requestsPerMonth: orgTierConfig.requestsPerMonth,
+          overagePer1k: orgTierConfig.overagePer1k,
+        },
+        requestsThisMonth,
       });
     });
 
@@ -849,6 +878,30 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
   });
 
   // ============================================================
+  // Tier admin endpoint (requires userStore)
+  // ============================================================
+
+  if (userStore) {
+    // Update org tier — for dev/support use. Updates all users in the org.
+    app.post('/admin/orgs/:orgId/tier', async (c) => {
+      const orgId = c.req.param('orgId');
+      const body = (await c.req.json().catch(() => ({}))) as { tier?: string };
+      const validTiers: Tier[] = ['free', 'starter', 'growth', 'enterprise'];
+      if (!body.tier || !validTiers.includes(body.tier as Tier)) {
+        return c.json({ error: 'tier must be one of: free, starter, growth, enterprise' }, 400);
+      }
+      const tier = body.tier as Tier;
+      const orgUsersList = await userStore.listByOrg(orgId);
+      if (orgUsersList.length === 0) {
+        return c.json({ error: 'No users found for this org' }, 404);
+      }
+      await Promise.all(orgUsersList.map((u) => userStore!.update(u.userId, { tier })));
+      logger.info({ orgId, tier, count: orgUsersList.length }, 'Org tier updated');
+      return c.json({ success: true, orgId, tier, usersUpdated: orgUsersList.length });
+    });
+  }
+
+  // ============================================================
   // Auth endpoints (require userStore + apiKeyStore)
   // ============================================================
 
@@ -885,6 +938,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         passwordHash,
         displayName: body.displayName,
         orgId,
+        tier: 'free',
         createdAt: now,
         updatedAt: now,
       });
@@ -902,6 +956,7 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
             email: user.email,
             displayName: user.displayName,
             orgId: user.orgId ?? null,
+            tier: user.tier ?? 'free',
           },
           token,
         },
@@ -954,11 +1009,42 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
       if (!user) {
         return c.json({ error: 'User not found' }, 404);
       }
+
+      const tier = (user.tier ?? 'free') as Tier;
+      const tierConfig = TIERS[tier];
+
+      let tierLimits: {
+        requestsPerMonth: number | null;
+        overagePer1k: number | null;
+        requestsThisMonth: number;
+        percentUsed: number | null;
+        isOverLimit: boolean;
+      } | undefined;
+
+      if (tierUsageStore && user.orgId) {
+        const periodKey = getCurrentTierPeriodKey();
+        const requestsThisMonth = await tierUsageStore.getRequestCount(user.orgId, periodKey);
+        const requestsPerMonth = tierConfig.requestsPerMonth;
+        const percentUsed = requestsPerMonth !== null
+          ? Math.round((requestsThisMonth / requestsPerMonth) * 1000) / 10
+          : null;
+        const isOverLimit = requestsPerMonth !== null && requestsThisMonth >= requestsPerMonth;
+        tierLimits = {
+          requestsPerMonth,
+          overagePer1k: tierConfig.overagePer1k,
+          requestsThisMonth,
+          percentUsed,
+          isOverLimit,
+        };
+      }
+
       return c.json({
         userId: user.userId,
         email: user.email,
         displayName: user.displayName,
         orgId: user.orgId ?? null,
+        tier,
+        ...(tierLimits !== undefined ? { tierLimits } : {}),
       });
     });
 
@@ -1169,6 +1255,38 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
           reason: `Token limit exceeded: ${currentTokens} >= ${threshold.maxTotalTokens}`,
           usage: { tokens: currentTokens, costUsd: currentCost },
         });
+      }
+
+      // Tier quota check: look up the API key owner's org and check their monthly request count
+      if (tierUsageStore && userStore) {
+        const platformUserId = c.get('apiKeyUserId');
+        const platformUser = platformUserId ? await userStore.findByUserId(platformUserId) : undefined;
+        const orgId = platformUser?.orgId;
+
+        if (orgId) {
+          const tier = (platformUser?.tier ?? 'free') as Tier;
+          const tierConfig = TIERS[tier];
+
+          if (tierConfig.requestsPerMonth !== null) {
+            const periodKey = getCurrentTierPeriodKey();
+            const requestsThisMonth = await tierUsageStore.getRequestCount(orgId, periodKey);
+
+            if (requestsThisMonth >= tierConfig.requestsPerMonth) {
+              // Free tier: block when limit is hit (no overage)
+              if (tierConfig.overagePer1k === null) {
+                return c.json({
+                  allowed: false,
+                  reason: 'tier_quota_exceeded',
+                  usage: { tokens: currentTokens, costUsd: currentCost },
+                });
+              }
+              // Paid tier with overage: allow but continue (overage applies)
+            }
+          }
+
+          // Increment request count for this org
+          await tierUsageStore.incrementRequestCount(orgId, getCurrentTierPeriodKey());
+        }
       }
 
       const remainingTokens =

@@ -10,6 +10,14 @@ compatibility_flags = ["nodejs_compat"]
 # Set these in .dev.vars or wrangler secrets
 # OPENAI_API_KEY = ""
 # JWT_SECRET = ""
+# STRIPE_SECRET_KEY = "sk_test_..."
+# STRIPE_WEBHOOK_SECRET = "whsec_..."
+# STRIPE_PRICE_STARTER_MONTHLY = "price_..."
+# STRIPE_PRICE_STARTER_ANNUAL = "price_..."
+# STRIPE_PRICE_GROWTH_MONTHLY = "price_..."
+# STRIPE_PRICE_GROWTH_ANNUAL = "price_..."
+# DASHBOARD_URL = "http://localhost:3001"
+# MARKETING_URL = "http://localhost:3000"
 
 [[d1_databases]]
 binding = "DB"

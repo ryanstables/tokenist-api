@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS users (
   threshold_max_cost_usd REAL,
   threshold_max_total_tokens INTEGER,
   usage_window TEXT,
+  tier TEXT NOT NULL DEFAULT 'free',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -155,3 +156,14 @@ CREATE TABLE IF NOT EXISTS sentiment_labels (
 );
 CREATE INDEX IF NOT EXISTS idx_sentiment_labels_org_id ON sentiment_labels(org_id);
 -- Migration: run the CREATE TABLE IF NOT EXISTS above on existing databases.
+
+-- Premium account tiers
+-- Migration: run migrations/002_tiers.sql on existing databases.
+
+-- Monthly request count tracking per org (for tier quota enforcement)
+CREATE TABLE IF NOT EXISTS tier_usage (
+  org_id TEXT NOT NULL,
+  period_key TEXT NOT NULL,  -- 'YYYY-MM' format
+  request_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, period_key)
+);

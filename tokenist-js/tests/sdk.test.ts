@@ -27,7 +27,7 @@ describe("sdk resource", () => {
       };
       const spy = mockFetch({ body: checkResponse });
 
-      const result = await client.sdk.check({
+      const result = await client.check({
         userId: "user-123",
         model: "gpt-4o-realtime-preview",
         requestType: "realtime",
@@ -63,7 +63,7 @@ describe("sdk resource", () => {
         },
       });
 
-      const result = await client.sdk.check({
+      const result = await client.check({
         userId: "blocked-user",
         model: "gpt-4o",
         requestType: "chat",
@@ -84,7 +84,7 @@ describe("sdk resource", () => {
         },
       });
 
-      await client.sdk.check({
+      await client.check({
         userId: "u1",
         model: "gpt-4o",
         requestType: "chat",
@@ -101,7 +101,7 @@ describe("sdk resource", () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
-      await client.sdk.record({
+      await client.record({
         userId: "user-123",
         model: "gpt-4o-realtime-preview",
         requestType: "realtime",
@@ -128,7 +128,7 @@ describe("sdk resource", () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
-      await client.sdk.record({
+      await client.record({
         userId: "u1",
         model: "gpt-4o",
         requestType: "chat",
@@ -165,7 +165,7 @@ describe("sdk resource", () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
-      await client.sdk.log({
+      await client.log({
         model: "gpt-4o-realtime-preview",
         request: { type: "session.update", session: {} },
         response: { type: "response.done", response: {} },
@@ -193,7 +193,7 @@ describe("sdk resource", () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
-      await client.sdk.log({
+      await client.log({
         model: "gpt-4o",
         request: { messages: [{ role: "user", content: "Hello" }] },
       });
@@ -207,7 +207,7 @@ describe("sdk resource", () => {
       const client = makeClient();
       const spy = mockFetch({ body: {} });
 
-      await client.sdk.log({ model: "gpt-4o", request: {} });
+      await client.log({ model: "gpt-4o", request: {} });
 
       const [, options] = spy.mock.calls[0] as [string, RequestInit];
       const headers = options.headers as Record<string, string>;

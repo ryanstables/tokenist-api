@@ -19,6 +19,7 @@ import type {
   SlackSettingsStore,
   SentimentLabel,
   SentimentLabelStore,
+  TierUsageStore,
 } from './interfaces';
 import { BUILTIN_LABELS } from '../sentiment/defaults';
 import { calculateCost as staticCalculateCost } from '../usage/pricing';
@@ -591,6 +592,30 @@ export function createInMemoryLabelStore(): SentimentLabelStore {
       if (!map?.has(id)) return false;
       map.delete(id);
       return true;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// In-memory TierUsageStore
+// ---------------------------------------------------------------------------
+
+export function createInMemoryTierUsageStore(): TierUsageStore {
+  // Map key: `${orgId}::${periodKey}`
+  const counts = new Map<string, number>();
+
+  return {
+    async incrementRequestCount(orgId: string, periodKey: string): Promise<number> {
+      const key = `${orgId}::${periodKey}`;
+      const current = counts.get(key) ?? 0;
+      const next = current + 1;
+      counts.set(key, next);
+      return next;
+    },
+
+    async getRequestCount(orgId: string, periodKey: string): Promise<number> {
+      const key = `${orgId}::${periodKey}`;
+      return counts.get(key) ?? 0;
     },
   };
 }
