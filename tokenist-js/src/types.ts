@@ -196,6 +196,12 @@ export type SubjectType = "user" | "group" | "feature";
 /** Restriction/action types applied when a rule triggers. */
 export type RestrictionType = "warning" | "rate_limit" | "throttle" | "block";
 
+/** A sliding or fixed time window used by triggers and restrictions. */
+export interface TimeWindow {
+  count: number;
+  unit: "minute" | "hour" | "day" | "month";
+}
+
 export interface RuleSubject {
   type: SubjectType;
   ids: string[];
@@ -207,13 +213,41 @@ export interface RuleNotifications {
   responseMessage?: string;
 }
 
+/**
+ * Configuration describing what condition causes a rule to fire.
+ *
+ * - `token_limit` — fires when a subject's token usage within `window` exceeds `tokens`.
+ * - `cost_limit` — fires when cost within `window` exceeds `costUsd`.
+ * - `policy_violation` — fires when a request violates the referenced policy.
+ * - `inactivity` — fires when a subject has not made a request within `duration`.
+ */
+export type RuleTriggerConfig =
+  | { type: "token_limit"; tokens: number; window: TimeWindow }
+  | { type: "cost_limit"; costUsd: number; window: TimeWindow }
+  | { type: "policy_violation"; policyId: string }
+  | { type: "inactivity"; duration: TimeWindow };
+
+/**
+ * Configuration describing the action taken when a rule fires.
+ *
+ * - `warning` — logs the event and optionally injects a message; no hard block.
+ * - `rate_limit` — allows at most `maxRequests` requests within `window`.
+ * - `throttle` — introduces a fixed `delayMs` millisecond delay on each request.
+ * - `block` — denies all further requests until the rule is removed or the subject is unblocked.
+ */
+export type RuleRestrictionConfig =
+  | { type: "warning" }
+  | { type: "rate_limit"; maxRequests: number; window: TimeWindow }
+  | { type: "throttle"; delayMs: number }
+  | { type: "block" };
+
 export interface Rule {
   id: string;
   name: string;
   enabled: boolean;
   subject: RuleSubject;
-  trigger: Record<string, unknown> & { type: string };
-  restriction: Record<string, unknown> & { type: RestrictionType };
+  trigger: RuleTriggerConfig;
+  restriction: RuleRestrictionConfig;
   notifications: RuleNotifications;
   createdAt: string;
   updatedAt: string;
@@ -230,8 +264,8 @@ export interface CreateRuleRequest {
   name: string;
   enabled?: boolean;
   subject: RuleSubject;
-  trigger: Record<string, unknown> & { type: string };
-  restriction: Record<string, unknown> & { type: RestrictionType };
+  trigger: RuleTriggerConfig;
+  restriction: RuleRestrictionConfig;
   notifications: RuleNotifications;
 }
 
@@ -239,8 +273,8 @@ export interface UpdateRuleRequest {
   name?: string;
   enabled?: boolean;
   subject?: RuleSubject;
-  trigger?: Record<string, unknown> & { type: string };
-  restriction?: Record<string, unknown> & { type: RestrictionType };
+  trigger?: RuleTriggerConfig;
+  restriction?: RuleRestrictionConfig;
   notifications?: RuleNotifications;
 }
 

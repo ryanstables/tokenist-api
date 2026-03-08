@@ -7,6 +7,8 @@ import type {
   SdkCheckResponse,
   SdkRecordRequest,
   SdkLogRequest,
+  Rule,
+  ListRulesOptions,
 } from "./types";
 
 /**
@@ -77,5 +79,29 @@ export class TokenistClient {
    */
   log(data: SdkLogRequest): Promise<void> {
     return this._sdk.log(data);
+  }
+
+  /**
+   * List all rules configured for an organisation.
+   *
+   * Returns an array of {@link Rule} objects, each containing the rule's id,
+   * name, enabled state, subject, trigger, restriction, and timestamps — all
+   * the information needed to identify and apply a rule programmatically.
+   *
+   * Pass optional filters to narrow results by subject type, restriction type,
+   * or enabled state.
+   *
+   * @example
+   * ```ts
+   * const rules = await client.listRules("org_123");
+   * const activeBlocks = await client.listRules("org_123", {
+   *   restrictionType: "block",
+   *   enabled: true,
+   * });
+   * ```
+   */
+  async listRules(orgId: string, opts?: ListRulesOptions): Promise<Rule[]> {
+    const response = await this.admin.listRules(orgId, opts);
+    return response.rules;
   }
 }
