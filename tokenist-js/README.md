@@ -32,16 +32,16 @@ Every request is authenticated with your API key as a `Bearer` token.
 
 ## API reference
 
-### `client.sdk`
+### `client.check(data)` / `client.record(data)` / `client.log(data)`
 
-Methods for integrating Tokenist checks into your own backend, around calls you make to OpenAI.
+Methods for integrating Tokenist into your own backend, around calls you make to OpenAI.
 
-#### `sdk.check(data)`
+#### `client.check(data)`
 
 Pre-flight check — call this *before* forwarding a request to OpenAI to verify the user is allowed.
 
 ```ts
-const result = await client.sdk.check({
+const result = await client.check({
   userId:          "user-123",
   model:           "gpt-4o-realtime-preview",
   requestType:     "realtime",     // "realtime" | "chat" | "embeddings"
@@ -55,12 +55,12 @@ if (!result.allowed) {
 // result.remaining.tokens, result.remaining.costUsd
 ```
 
-#### `sdk.record(data)`
+#### `client.record(data)`
 
 Record actual token usage *after* a request completes. Keeps Tokenist's usage totals accurate when you have real counts from the OpenAI response.
 
 ```ts
-await client.sdk.record({
+await client.record({
   userId:      "user-123",
   model:       "gpt-4o-realtime-preview",
   requestType: "realtime",
@@ -72,12 +72,12 @@ await client.sdk.record({
 });
 ```
 
-#### `sdk.log(data)`
+#### `client.log(data)`
 
 Log a full request/response pair for auditing and analytics.
 
 ```ts
-await client.sdk.log({
+await client.log({
   model:          "gpt-4o-realtime-preview",
   request:        { type: "session.update", session: { voice: "alloy" } },
   response:       { type: "response.done",  response: { ... } },

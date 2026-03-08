@@ -19,6 +19,8 @@ import type {
   SlackSettingsStore,
   SentimentLabel,
   SentimentLabelStore,
+  TierUsageStore,
+  Tier,
 } from './interfaces';
 import { BUILTIN_LABELS } from '../sentiment/defaults';
 
@@ -268,6 +270,7 @@ export function createD1UserStore(db: D1Database): UserStore {
     threshold_max_cost_usd: number | null;
     threshold_max_total_tokens: number | null;
     usage_window: string | null;
+    tier: string | null;
     created_at: string;
     updated_at: string;
   }): StoredUserRecord {
@@ -275,6 +278,7 @@ export function createD1UserStore(db: D1Database): UserStore {
       userId: row.user_id,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
+      tier: (row.tier as Tier | null) ?? 'free',
     };
     if (row.org_id) record.orgId = row.org_id;
     if (row.email) record.email = row.email;
@@ -299,6 +303,7 @@ export function createD1UserStore(db: D1Database): UserStore {
     threshold_max_cost_usd: number | null;
     threshold_max_total_tokens: number | null;
     usage_window: string | null;
+    tier: string | null;
     created_at: string;
     updated_at: string;
   };
@@ -333,8 +338,8 @@ export function createD1UserStore(db: D1Database): UserStore {
         .prepare(
           `INSERT INTO users (user_id, org_id, email, password_hash, display_name,
              threshold_max_cost_usd, threshold_max_total_tokens, usage_window,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             tier, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
           user.userId,
@@ -345,6 +350,7 @@ export function createD1UserStore(db: D1Database): UserStore {
           user.threshold?.maxCostUsd ?? null,
           user.threshold?.maxTotalTokens ?? null,
           user.usageWindow ?? null,
+          user.tier ?? 'free',
           user.createdAt.toISOString(),
           user.updatedAt.toISOString()
         )
@@ -365,7 +371,7 @@ export function createD1UserStore(db: D1Database): UserStore {
           `UPDATE users SET
              org_id = ?, email = ?, password_hash = ?, display_name = ?,
              threshold_max_cost_usd = ?, threshold_max_total_tokens = ?,
-             usage_window = ?, updated_at = ?
+             usage_window = ?, tier = ?, updated_at = ?
            WHERE user_id = ?`
         )
         .bind(
@@ -376,6 +382,7 @@ export function createD1UserStore(db: D1Database): UserStore {
           updated.threshold?.maxCostUsd ?? null,
           updated.threshold?.maxTotalTokens ?? null,
           updated.usageWindow ?? null,
+          updated.tier ?? 'free',
           updated.updatedAt.toISOString(),
           userId
         )
@@ -1127,6 +1134,42 @@ export function createD1SentimentLabelStore(db: D1Database): SentimentLabelStore
         .bind(id, orgId)
         .run();
       return (result.meta?.changes ?? 0) > 0;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// D1 TierUsageStore
+// ---------------------------------------------------------------------------
+
+export function createD1TierUsageStore(db: D1Database): TierUsageStore {
+  return {
+    async incrementRequestCount(orgId: string, periodKey: string): Promise<number> {
+      await db
+        .prepare(
+          `INSERT INTO tier_usage (org_id, period_key, request_count)
+           VALUES (?, ?, 1)
+           ON CONFLICT (org_id, period_key) DO UPDATE SET
+             request_count = request_count + 1`
+        )
+        .bind(orgId, periodKey)
+        .run();
+
+      const row = await db
+        .prepare('SELECT request_count FROM tier_usage WHERE org_id = ? AND period_key = ?')
+        .bind(orgId, periodKey)
+        .first<{ request_count: number }>();
+
+      return row?.request_count ?? 1;
+    },
+
+    async getRequestCount(orgId: string, periodKey: string): Promise<number> {
+      const row = await db
+        .prepare('SELECT request_count FROM tier_usage WHERE org_id = ? AND period_key = ?')
+        .bind(orgId, periodKey)
+        .first<{ request_count: number }>();
+
+      return row?.request_count ?? 0;
     },
   };
 }
