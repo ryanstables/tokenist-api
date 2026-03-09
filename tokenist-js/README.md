@@ -228,27 +228,62 @@ The package ships with full TypeScript types. All request/response shapes are ex
 
 ```ts
 import type {
+  // Client
   TokenistClientOptions,
-  SdkCheckRequest,
-  SdkCheckResponse,
+  // Usage
   EndUserUsage,
   EndUserThreshold,
+  // Admin – users
+  EndUserRecord,
+  ListUsersResponse,
+  UserDetailsResponse,
+  BlockEntry,
+  BlockUserRequest,
+  ListBlockedResponse,
+  ListOrgBlockedResponse,
+  SetThresholdRequest,
+  // Admin – orgs
+  OrgSummary,
+  OrgSummaryOptions,
+  OrgSummaryUser,
+  OrgEndUser,
+  UsagePeriod,
+  // Admin – logs
   RequestLog,
+  RequestLogTokenDetails,
+  ListLogsOptions,
+  ListLogsResponse,
+  // Admin – policies
+  Policy,
+  CreatePolicyRequest,
+  UpdatePolicyRequest,
+  // Admin – rules
   Rule,
-  // ... and more
+  ListRulesResponse,
+  CreateRuleRequest,
+  UpdateRuleRequest,
+  ListRulesOptions,
+  RuleSubject,
+  RuleNotifications,
+  RuleTriggerConfig,
+  RuleRestrictionConfig,
+  TimeWindow,
+  RuleHistoryEntry,
+  ListRuleHistoryResponse,
+  RuleTrigger,
+  ListRuleTriggersResponse,
+  SubjectType,
+  RestrictionType,
+  // SDK
+  SdkCheckRequest,
+  SdkCheckResponse,
+  SdkCheckUsage,
+  SdkRecordRequest,
+  SdkLogRequest,
+  RequestType,
+  // Misc
+  PaginationOptions,
+  PaginatedResult,
+  TokenistErrorBody,
 } from "tokenist-js";
 ```
-
----
-
-## Development
-
-```bash
-npm test              # run the test suite
-npm run test:watch    # watch mode
-npm run test:coverage # with coverage report
-npm run build         # compile to dist/
-npm run lint          # type-check without emitting
-```
-
-Tests use Jest with a mocked global `fetch` — no real HTTP requests are made.

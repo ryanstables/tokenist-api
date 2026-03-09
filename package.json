@@ -1,7 +1,15 @@
 {
-  "name": "tokenist-core",
+  "name": "tokenist-js",
   "version": "0.1.0",
-  "description": "OpenAI Realtime API proxy with per-user token/cost tracking — Cloudflare Workers edition",
+  "author": "Tokenist <tokenistdev@gmail.com>",
+  "license": "MIT",
+  "keywords": [
+    "llm",
+    "agents",
+    "guardrails",
+    "ai"
+  ],
+  "description": "Node.js client for the Tokenist.dev API — token tracking, cost guardrails, and user management LLMs and agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
