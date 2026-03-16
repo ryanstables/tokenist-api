@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "bash scripts/run-integration-tests.sh",
     "example:log-with-fetch": "tsx examples/log-with-fetch.ts"
   },
   "dependencies": {

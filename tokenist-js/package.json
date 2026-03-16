@@ -17,9 +17,11 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "jest --testPathPattern=tests/",
-    "test:watch": "jest --watch --testPathPattern=tests/",
-    "test:coverage": "jest --coverage --testPathPattern=tests/",
+    "test": "jest --testPathPattern=tests/ --testPathIgnorePatterns=tests/integration",
+    "test:watch": "jest --watch --testPathPattern=tests/ --testPathIgnorePatterns=tests/integration",
+    "test:coverage": "jest --coverage --testPathPattern=tests/ --testPathIgnorePatterns=tests/integration",
+    "test:integration": "jest --config jest.integration.config.js --runInBand --forceExit",
+    "test:integration:watch": "jest --config jest.integration.config.js --watch",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
