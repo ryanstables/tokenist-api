@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Logger } from '../logger';
-import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore, SentimentLabelStore, TierUsageStore, Tier } from '../storage/interfaces';
+import type { UsageStore, Blocklist, UserStore, ApiKeyStore, RequestLogStore, StoredRequestLog, PricingStore, SlackSettingsStore, SentimentLabelStore, TierUsageStore, Tier, ConversationStore } from '../storage/interfaces';
 import { TIERS } from '../storage/interfaces';
 import type { EndUserUsage } from '../types/user';
 import type { JWTPayload } from '../auth/jwt';
@@ -25,6 +25,7 @@ export interface AdminRouteDeps {
   userStore?: UserStore;
   apiKeyStore?: ApiKeyStore;
   requestLogStore?: RequestLogStore;
+  conversationStore?: ConversationStore;
   pricingStore?: PricingStore;
   slackSettingsStore?: SlackSettingsStore;
   sentimentLabelStore?: SentimentLabelStore;
@@ -78,6 +79,23 @@ const sdkRecordSchema = z.object({
   success: z.boolean(),
   timestamp: z.string().datetime().optional(),
   feature: z.string().min(1).optional(),
+});
+
+const startConversationSchema = z.object({
+  userId: z.string().min(1),
+  model: z.string().min(1),
+  requestType: z.enum(['realtime', 'chat', 'embeddings']),
+  estimatedTokens: z.number().int().nonnegative().optional(),
+  feature: z.string().min(1).optional(),
+  userEmail: z.string().optional(),
+  userName: z.string().optional(),
+});
+
+const updateConversationSchema = z.object({
+  request: z.record(z.unknown()).optional(),
+  response: z.record(z.unknown()).optional(),
+  latencyMs: z.number().nonnegative().optional(),
+  status: z.enum(['success', 'error']).optional(),
 });
 
 const sentimentLabelCreateSchema = z.object({
@@ -141,7 +159,7 @@ const ruleHistoryByOrg = new Map<string, Map<string, RuleHistoryRecord[]>>();
 const ruleTriggersByOrg = new Map<string, Map<string, RuleTriggerRecord[]>>();
 
 export function createAdminRoutes(deps: AdminRouteDeps) {
-  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, pricingStore, slackSettingsStore, sentimentLabelStore, tierUsageStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode, db } = deps;
+  const { usageStore, blocklist, userStore, apiKeyStore, requestLogStore, conversationStore, pricingStore, slackSettingsStore, sentimentLabelStore, tierUsageStore, logger, jwtSecret, jwtExpiresIn, openaiApiKey, devMode, db } = deps;
   const app = new Hono<Env>();
 
   const buildPeriodLabel = (period: string): string => {
@@ -1491,6 +1509,260 @@ export function createAdminRoutes(deps: AdminRouteDeps) {
         logger.info({ logId: log.id, endUserId, conversationId, model }, 'Request logged');
 
         return c.json({ id: log.id, conversationId, recorded: true }, 201);
+      });
+    }
+
+    // ── Conversation lifecycle endpoints ──────────────────────────────────
+
+    if (conversationStore && userStore) {
+      // Start a conversation: runs guardrail checks then creates a conversation record
+      app.post('/sdk/conversations', apiKeyMw, async (c) => {
+        const body = await c.req.json().catch(() => ({}));
+        const result = startConversationSchema.safeParse(body);
+        if (!result.success) {
+          return c.json({ error: result.error.issues }, 400);
+        }
+
+        const {
+          userId: clientUserId,
+          model,
+          requestType,
+          estimatedTokens,
+          feature,
+          userEmail: clientEmail,
+          userName: clientName,
+        } = result.data;
+
+        const platformUserId = c.get('apiKeyUserId');
+        const platformUser = await userStore.findByUserId(platformUserId);
+        const orgId = platformUser?.orgId ?? null;
+        const endUserId = clientUserId ?? platformUserId;
+
+        // Blocklist check
+        const blockEntry = await blocklist.getBlockEntry(endUserId);
+        if (blockEntry) {
+          const usage = await usageStore.getUsage(endUserId);
+          return c.json({
+            allowed: false,
+            reason: `User is blocked: ${blockEntry.reason || 'No reason provided'}`,
+            usage: usage ? { tokens: usage.totalTokens, costUsd: usage.costUsd } : { tokens: 0, costUsd: 0 },
+          });
+        }
+
+        // Threshold checks
+        const usage = await usageStore.getUsage(endUserId);
+        const threshold = await usageStore.getThreshold(endUserId);
+        const currentTokens = usage?.totalTokens ?? 0;
+        const currentCost = usage?.costUsd ?? 0;
+
+        if (threshold.maxCostUsd !== undefined && currentCost >= threshold.maxCostUsd) {
+          return c.json({
+            allowed: false,
+            reason: `Cost limit exceeded: $${currentCost.toFixed(4)} >= $${threshold.maxCostUsd.toFixed(2)}`,
+            usage: { tokens: currentTokens, costUsd: currentCost },
+          });
+        }
+
+        if (threshold.maxTotalTokens !== undefined && threshold.maxTotalTokens > 0 && currentTokens >= threshold.maxTotalTokens) {
+          return c.json({
+            allowed: false,
+            reason: `Token limit exceeded: ${currentTokens} >= ${threshold.maxTotalTokens}`,
+            usage: { tokens: currentTokens, costUsd: currentCost },
+          });
+        }
+
+        // Tier quota check
+        if (tierUsageStore && orgId) {
+          const tier = (platformUser?.tier ?? 'free') as Tier;
+          const tierConfig = TIERS[tier];
+
+          if (tierConfig.requestsPerMonth !== null) {
+            const periodKey = getCurrentTierPeriodKey();
+            const requestsThisMonth = await tierUsageStore.getRequestCount(orgId, periodKey);
+
+            if (requestsThisMonth >= tierConfig.requestsPerMonth && tierConfig.overagePer1k === null) {
+              return c.json({
+                allowed: false,
+                reason: 'tier_quota_exceeded',
+                usage: { tokens: currentTokens, costUsd: currentCost },
+              });
+            }
+          }
+
+          await tierUsageStore.incrementRequestCount(orgId, getCurrentTierPeriodKey());
+        }
+
+        const endUserEmail = clientEmail || platformUser?.email || null;
+        const endUserName = clientName || platformUser?.displayName || null;
+
+        const conversationId = crypto.randomUUID();
+        await conversationStore.create({
+          id: conversationId,
+          endUserId,
+          orgId,
+          endUserEmail,
+          endUserName,
+          model,
+          feature: feature ?? null,
+          status: 'active',
+          startedAt: new Date(),
+          endedAt: null,
+        });
+
+        logger.info({ conversationId, endUserId, model }, 'Conversation started');
+
+        const remainingTokens = threshold.maxTotalTokens !== undefined ? threshold.maxTotalTokens - currentTokens : undefined;
+        const remainingCost = threshold.maxCostUsd !== undefined ? threshold.maxCostUsd - currentCost : undefined;
+
+        return c.json({
+          conversationId,
+          allowed: true,
+          usage: { tokens: currentTokens, costUsd: currentCost },
+          remaining: { tokens: remainingTokens ?? 0, costUsd: remainingCost ?? 0 },
+        }, 201);
+      });
+
+      // Update a conversation: append a request and/or response turn
+      app.patch('/sdk/conversations/:id', apiKeyMw, async (c) => {
+        const conversationId = c.req.param('id');
+        const body = await c.req.json().catch(() => ({}));
+        const result = updateConversationSchema.safeParse(body);
+        if (!result.success) {
+          return c.json({ error: result.error.issues }, 400);
+        }
+
+        const conversation = await conversationStore.getById(conversationId);
+        if (!conversation) {
+          return c.json({ error: 'Conversation not found' }, 404);
+        }
+        if (conversation.status === 'ended') {
+          return c.json({ error: 'Conversation has already ended' }, 409);
+        }
+
+        const { request: reqBody, response: resBody, latencyMs, status } = result.data;
+
+        if (!reqBody && !resBody) {
+          return c.json({ error: 'At least one of request or response must be provided' }, 400);
+        }
+
+        const platformUserId = c.get('apiKeyUserId');
+        const platformUser = await userStore.findByUserId(platformUserId);
+        const orgId = platformUser?.orgId ?? null;
+
+        // Extract token counts from response.usage if present
+        const rawResponse = resBody as Record<string, unknown> | undefined;
+        const usageData = (rawResponse?.usage ?? (rawResponse?.response as Record<string, unknown> | undefined)?.usage) as
+          | {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              total_tokens?: number;
+              input_tokens?: number;
+              output_tokens?: number;
+              prompt_tokens_details?: { cached_tokens?: number; text_tokens?: number; audio_tokens?: number; image_tokens?: number };
+              completion_tokens_details?: { text_tokens?: number; audio_tokens?: number; reasoning_tokens?: number };
+              input_token_details?: { cached_tokens?: number; text_tokens?: number; audio_tokens?: number; image_tokens?: number };
+              output_token_details?: { text_tokens?: number; audio_tokens?: number; reasoning_tokens?: number };
+            }
+          | undefined;
+
+        const promptTokens = usageData?.prompt_tokens ?? usageData?.input_tokens ?? null;
+        const completionTokens = usageData?.completion_tokens ?? usageData?.output_tokens ?? null;
+        const totalTokens = usageData?.total_tokens ?? null;
+
+        const inputDetails = usageData?.prompt_tokens_details ?? usageData?.input_token_details;
+        const cachedInputTokens = inputDetails?.cached_tokens ?? null;
+        const textInputTokens = inputDetails?.text_tokens ?? null;
+        const audioInputTokens = inputDetails?.audio_tokens ?? null;
+        const imageInputTokens = inputDetails?.image_tokens ?? null;
+
+        const outputDetails = usageData?.completion_tokens_details ?? usageData?.output_token_details;
+        const textOutputTokens = outputDetails?.text_tokens ?? null;
+        const audioOutputTokens = outputDetails?.audio_tokens ?? null;
+        const reasoningTokens = outputDetails?.reasoning_tokens ?? null;
+
+        const inputTokens = promptTokens ?? 0;
+        const outputTokens = completionTokens ?? 0;
+        let requestCost: number | null = null;
+        if (inputTokens > 0 || outputTokens > 0) {
+          if (pricingStore && (textInputTokens !== null || audioInputTokens !== null || audioOutputTokens !== null)) {
+            requestCost = await pricingStore.calculateDetailedCost(conversation.model, {
+              inputTokens, outputTokens,
+              cachedInputTokens: cachedInputTokens ?? undefined,
+              textInputTokens: textInputTokens ?? undefined,
+              audioInputTokens: audioInputTokens ?? undefined,
+              imageInputTokens: imageInputTokens ?? undefined,
+              textOutputTokens: textOutputTokens ?? undefined,
+              audioOutputTokens: audioOutputTokens ?? undefined,
+              reasoningTokens: reasoningTokens ?? undefined,
+            });
+          } else if (pricingStore) {
+            requestCost = await pricingStore.calculateCost(conversation.model, inputTokens, outputTokens);
+          } else {
+            requestCost = staticCalculateCost(conversation.model, inputTokens, outputTokens);
+          }
+        }
+
+        if (requestLogStore) {
+          const logId = crypto.randomUUID();
+          await requestLogStore.create({
+            id: logId,
+            endUserId: conversation.endUserId,
+            orgId,
+            endUserEmail: conversation.endUserEmail,
+            endUserName: conversation.endUserName,
+            conversationId,
+            model: conversation.model,
+            feature: conversation.feature,
+            requestBody: reqBody ? JSON.stringify(reqBody) : '{}',
+            responseBody: resBody ? JSON.stringify(resBody) : null,
+            status: status ?? 'success',
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            cachedInputTokens,
+            textInputTokens,
+            audioInputTokens,
+            imageInputTokens,
+            textOutputTokens,
+            audioOutputTokens,
+            reasoningTokens,
+            costUsd: requestCost,
+            latencyMs: latencyMs ?? null,
+            createdAt: new Date(),
+          });
+
+          if (inputTokens > 0 || outputTokens > 0) {
+            await usageStore.updateUsage(conversation.endUserId, conversation.model, inputTokens, outputTokens, 'default');
+          }
+
+          logger.info({ logId, conversationId, model: conversation.model }, 'Conversation updated');
+
+          return c.json({ logId, conversationId });
+        }
+
+        return c.json({ conversationId });
+      });
+
+      // End a conversation
+      app.post('/sdk/conversations/:id/end', apiKeyMw, async (c) => {
+        const conversationId = c.req.param('id');
+
+        const conversation = await conversationStore.getById(conversationId);
+        if (!conversation) {
+          return c.json({ error: 'Conversation not found' }, 404);
+        }
+        if (conversation.status === 'ended') {
+          return c.json({ error: 'Conversation has already ended' }, 409);
+        }
+
+        const ended = await conversationStore.end(conversationId);
+
+        logger.info({ conversationId }, 'Conversation ended');
+
+        return c.json({
+          conversationId,
+          endedAt: ended?.endedAt?.toISOString() ?? new Date().toISOString(),
+        });
       });
     }
   }

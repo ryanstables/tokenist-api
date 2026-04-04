@@ -167,3 +167,20 @@ CREATE TABLE IF NOT EXISTS tier_usage (
   request_count INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, period_key)
 );
+
+-- Conversation lifecycle tracking
+CREATE TABLE IF NOT EXISTS conversations (
+  id TEXT PRIMARY KEY,
+  end_user_id TEXT NOT NULL,
+  org_id TEXT,
+  end_user_email TEXT,
+  end_user_name TEXT,
+  model TEXT NOT NULL,
+  feature TEXT,
+  status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'ended'
+  started_at TEXT NOT NULL,
+  ended_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_conversations_end_user_id ON conversations(end_user_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_org_id ON conversations(org_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);

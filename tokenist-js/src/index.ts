@@ -55,6 +55,12 @@ export type {
   SdkRecordRequest,
   SdkLogRequest,
   RequestType,
+  // Conversation lifecycle
+  StartConversationRequest,
+  StartConversationResponse,
+  UpdateConversationRequest,
+  UpdateConversationResponse,
+  EndConversationResponse,
   // Misc
   PaginationOptions,
   PaginatedResult,

@@ -371,6 +371,46 @@ export interface SdkLogRequest {
   feature?: string;
 }
 
+// ─── Conversation lifecycle ───────────────────────────────────────────────────
+
+export interface StartConversationRequest {
+  userId: string;
+  model: string;
+  requestType: RequestType;
+  estimatedTokens?: number;
+  feature?: string;
+  userEmail?: string;
+  userName?: string;
+}
+
+export interface StartConversationResponse {
+  conversationId: string;
+  allowed: boolean;
+  reason?: string;
+  usage: SdkCheckUsage;
+  remaining?: {
+    tokens: number;
+    costUsd: number;
+  };
+}
+
+export interface UpdateConversationRequest {
+  request?: Record<string, unknown>;
+  response?: Record<string, unknown>;
+  latencyMs?: number;
+  status?: "success" | "error";
+}
+
+export interface UpdateConversationResponse {
+  logId?: string;
+  conversationId: string;
+}
+
+export interface EndConversationResponse {
+  conversationId: string;
+  endedAt: string;
+}
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 export interface TokenistErrorBody {

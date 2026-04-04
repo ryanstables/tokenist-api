@@ -21,6 +21,8 @@ import type {
   SentimentLabelStore,
   TierUsageStore,
   Tier,
+  ConversationStore,
+  StoredConversation,
 } from './interfaces';
 import { BUILTIN_LABELS } from '../sentiment/defaults';
 
@@ -1170,6 +1172,81 @@ export function createD1TierUsageStore(db: D1Database): TierUsageStore {
         .first<{ request_count: number }>();
 
       return row?.request_count ?? 0;
+    },
+  };
+}
+
+export function createD1ConversationStore(db: D1Database): ConversationStore {
+  type ConvRow = {
+    id: string;
+    end_user_id: string;
+    org_id: string | null;
+    end_user_email: string | null;
+    end_user_name: string | null;
+    model: string;
+    feature: string | null;
+    status: string;
+    started_at: string;
+    ended_at: string | null;
+  };
+
+  function rowToConv(row: ConvRow): StoredConversation {
+    return {
+      id: row.id,
+      endUserId: row.end_user_id,
+      orgId: row.org_id,
+      endUserEmail: row.end_user_email,
+      endUserName: row.end_user_name,
+      model: row.model,
+      feature: row.feature,
+      status: row.status as 'active' | 'ended',
+      startedAt: new Date(row.started_at),
+      endedAt: row.ended_at ? new Date(row.ended_at) : null,
+    };
+  }
+
+  return {
+    async create(conv: StoredConversation): Promise<StoredConversation> {
+      await db
+        .prepare(
+          `INSERT INTO conversations (id, end_user_id, org_id, end_user_email, end_user_name, model, feature, status, started_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          conv.id,
+          conv.endUserId,
+          conv.orgId ?? null,
+          conv.endUserEmail ?? null,
+          conv.endUserName ?? null,
+          conv.model,
+          conv.feature ?? null,
+          conv.status,
+          conv.startedAt.toISOString(),
+          conv.endedAt ? conv.endedAt.toISOString() : null
+        )
+        .run();
+      return conv;
+    },
+
+    async getById(id: string): Promise<StoredConversation | undefined> {
+      const row = await db
+        .prepare('SELECT * FROM conversations WHERE id = ?')
+        .bind(id)
+        .first<ConvRow>();
+      return row ? rowToConv(row) : undefined;
+    },
+
+    async end(id: string): Promise<StoredConversation | undefined> {
+      const endedAt = new Date().toISOString();
+      await db
+        .prepare(`UPDATE conversations SET status = 'ended', ended_at = ? WHERE id = ?`)
+        .bind(endedAt, id)
+        .run();
+      const row = await db
+        .prepare('SELECT * FROM conversations WHERE id = ?')
+        .bind(id)
+        .first<ConvRow>();
+      return row ? rowToConv(row) : undefined;
     },
   };
 }
