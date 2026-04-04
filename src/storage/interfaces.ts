@@ -227,3 +227,22 @@ export interface TierUsageStore {
   /** Get the current request count for an org in the given period (YYYY-MM). */
   getRequestCount(orgId: string, periodKey: string): Promise<number>;
 }
+
+export interface StoredConversation {
+  id: string;
+  endUserId: string;
+  orgId?: string | null;
+  endUserEmail?: string | null;
+  endUserName?: string | null;
+  model: string;
+  feature?: string | null;
+  status: 'active' | 'ended';
+  startedAt: Date;
+  endedAt?: Date | null;
+}
+
+export interface ConversationStore {
+  create(conv: StoredConversation): Promise<StoredConversation>;
+  getById(id: string): Promise<StoredConversation | undefined>;
+  end(id: string): Promise<StoredConversation | undefined>;
+}

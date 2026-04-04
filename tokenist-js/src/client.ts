@@ -7,6 +7,11 @@ import type {
   SdkCheckResponse,
   SdkRecordRequest,
   SdkLogRequest,
+  StartConversationRequest,
+  StartConversationResponse,
+  UpdateConversationRequest,
+  UpdateConversationResponse,
+  EndConversationResponse,
   Rule,
   ListRulesOptions,
 } from "./types";
@@ -79,6 +84,40 @@ export class TokenistClient {
    */
   log(data: SdkLogRequest): Promise<void> {
     return this._sdk.log(data);
+  }
+
+  /**
+   * Start a new conversation. Runs all guardrail checks (blocklist, thresholds,
+   * tier quota) and returns a `conversationId` for use with `updateConversation`.
+   *
+   * Returns `allowed: false` when the user is blocked or over their limits —
+   * in that case no conversation is created and you should not proceed with the
+   * OpenAI call.
+   */
+  startConversation(
+    data: StartConversationRequest
+  ): Promise<StartConversationResponse> {
+    return this._sdk.startConversation(data);
+  }
+
+  /**
+   * Append a request, response, or both to an active conversation.
+   *
+   * Call once per LLM exchange. Token counts and cost are extracted from the
+   * response payload automatically.
+   */
+  updateConversation(
+    conversationId: string,
+    data: UpdateConversationRequest
+  ): Promise<UpdateConversationResponse> {
+    return this._sdk.updateConversation(conversationId, data);
+  }
+
+  /**
+   * Mark a conversation as ended. No further updates can be made after this.
+   */
+  endConversation(conversationId: string): Promise<EndConversationResponse> {
+    return this._sdk.endConversation(conversationId);
   }
 
   /**

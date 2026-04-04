@@ -28,6 +28,8 @@ export type {
   TierUsageStore,
   Tier,
   TierConfig,
+  ConversationStore,
+  StoredConversation,
 } from './storage/interfaces';
 export { TIERS } from './storage/interfaces';
 export type {
@@ -80,6 +82,7 @@ export {
   createD1PricingStore,
   createD1SentimentLabelStore,
   createD1TierUsageStore,
+  createD1ConversationStore,
 } from './storage/d1';
 export type { D1StoreOptions } from './storage/d1';
 export { getPeriodKey, getRolling24hPeriodKeys } from './storage/period';
